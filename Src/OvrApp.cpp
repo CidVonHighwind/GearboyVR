@@ -548,8 +548,7 @@ void LoadSettings() {
 }
 
 void SaveStateImage(int slot) {
-    std::string savePath = appDir;
-    savePath += "/Images/" + CurrentRom->RomName + ".stateimg";
+    std::string savePath = stateFolderPath + CurrentRom->RomName + ".stateimg";
     if (slot > 0)
         savePath += ('0' + slot);
 
@@ -562,8 +561,7 @@ void SaveStateImage(int slot) {
 }
 
 bool LoadStateImage(int slot) {
-    std::string savePath = appDir;
-    savePath += "/Images/" + CurrentRom->RomName + ".stateimg";
+    std::string savePath = stateFolderPath + CurrentRom->RomName + ".stateimg";
     if (slot > 0)
         savePath += ('0' + slot);
 
