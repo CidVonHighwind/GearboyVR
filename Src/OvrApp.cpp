@@ -1157,14 +1157,14 @@ void DrawGUI() {
         // save slot image
         if (currentMenu == &mainMenu) {
             if (currentGame->saveStates[saveSlot].filled)
-                DrawTexture(textureIdSlotImage, menuWidth - 240 - 20, HEADER_HEIGHT + 20, 240, 216,
-                            {1.0f, 1.0f, 1.0f, 1.0f});
+                DrawTexture(textureIdSlotImage, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 160 * 2,
+                            144 * 2, {1.0f, 1.0f, 1.0f, 1.0f});
             else {
                 RenderText(fontSlot, strNoSave, menuWidth - 120 - 20 - strNoSaveWidth / 2,
                            HEADER_HEIGHT + 20 + 108 - 22, 1.0f, Vector3f(0.95f, 0.95f, 0.95f));
             }
         } else if (currentMenu == &settingsMenu) {
-            DrawTexture(textureIdScreen, menuWidth - 240 - 20, HEADER_HEIGHT + 20, 240, 216,
+            DrawTexture(textureIdScreen, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 144 * 2,
                         {1.0f, 1.0f, 1.0f, 1.0f});
         }
     } else {
