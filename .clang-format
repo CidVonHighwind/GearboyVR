@@ -1,0 +1,6 @@
+# Defines the ANGLE style for automatic reformatting.
+# https://code.google.com/p/angleproject/wiki/CodingStandard
+# See Clang docs: http://clang.llvm.org/docs/ClangFormatStyleOptions.html
+BasedOnStyle: Google
+
+ColumnLimit: 100
