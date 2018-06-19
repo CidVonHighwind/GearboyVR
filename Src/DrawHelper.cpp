@@ -155,9 +155,6 @@ void DrawTexture(GLuint textureId, GLfloat posX, GLfloat posY, GLfloat width, GL
   glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(charVertices), charVertices);
   glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-  // glUniform4f(glGetUniformLocation(glRectangleProgram.Program, "textColor"),
-  //            color.x, color.y, color.z, color.w);
-
   // Draw a triangle from the 3 vertices
   glDrawArrays(GL_TRIANGLES, 0, 6);
 }

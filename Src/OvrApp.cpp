@@ -14,11 +14,55 @@
 #include "OVR_Locale.h"
 #include "OvrApp.h"
 
-#include "glm/glm.hpp"
-#include "glm/gtc/matrix_transform.hpp"
-#include "glm/gtc/type_ptr.hpp"
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
+
+#include <gli/clear.hpp>       // clear, clear_level, clear_layer
+#include <gli/comparison.hpp>  // == and != operators on textures and images
+#include <gli/convert.hpp>     // convert a texture from a format to another
+#include <gli/copy.hpp>        // copy a texture or subset of a texture to another texture
+#include <gli/duplicate.hpp>   // duplicate the data of a texture, allocating a new texture storage
+#include <gli/dx.hpp>          // facilitate the use of GLI with Direct3D API
+#include <gli/format.hpp>      // list of the supported formats
+#include <gli/generate_mipmaps.hpp>  // generating the mipmaps of a texture
+#include <gli/gl.hpp>                // translate GLI enums to OpenGL enums
+#include <gli/gli.hpp>
+#include <gli/image.hpp>  // use images, a representation of a single texture level.
+#include <gli/levels.hpp>  // compute the number of mipmaps levels necessary to create a mipmap complete texture.
+#include <gli/load.hpp>                // load DDS, KTX or KMG textures from files or memory.
+#include <gli/load_dds.hpp>            // load DDS textures from files or memory.
+#include <gli/load_kmg.hpp>            // load KMG textures from files or memory.
+#include <gli/load_ktx.hpp>            // load KTX textures from files or memory.
+#include <gli/make_texture.hpp>        // helper functions to create generic texture
+#include <gli/reduce.hpp>              // include to perform reduction operations.
+#include <gli/sampler.hpp>             // enumations for texture sampling
+#include <gli/sampler1d.hpp>           // class to sample 1d texture
+#include <gli/sampler1d_array.hpp>     // class to sample 1d array texture
+#include <gli/sampler2d.hpp>           // class to sample 2d texture
+#include <gli/sampler2d_array.hpp>     // class to sample 2d array texture
+#include <gli/sampler3d.hpp>           // class to sample 3d texture
+#include <gli/sampler_cube.hpp>        // class to sample cube texture
+#include <gli/sampler_cube_array.hpp>  // class to sample cube array texture
+#include <gli/save.hpp>                // save either a DDS, KTX or KMG file
+#include <gli/save_dds.hpp>            // save a DDS texture file
+#include <gli/save_kmg.hpp>            // save a KMG texture file
+#include <gli/save_ktx.hpp>            // save a KTX texture file
+#include <gli/target.hpp>              // helper function to query property of a generic texture
+#include <gli/texture.hpp>          // generic texture class that can represent any kind of texture
+#include <gli/texture1d.hpp>        // representation of a 1d texture
+#include <gli/texture1d_array.hpp>  // representation of a 1d array texture
+#include <gli/texture2d.hpp>        // representation of a 2d texture
+#include <gli/texture2d_array.hpp>  // representation of a 2d array texture
+#include <gli/texture3d.hpp>        // representation of a 3d texture
+#include <gli/texture_cube.hpp>     // representation of a cube texture
+#include <gli/texture_cube_array.hpp>  // representation of a cube array texture
+#include <gli/transform.hpp>           // perform operation on source data to destination data
+#include <gli/type.hpp>                // extent*d types
+#include <gli/view.hpp>  // create a texture view, same storage but a different scope or interpretation of the data
 
 #include <gearboy.h>
+#include <gli/format.hpp>
 #include "Audio/OpenSLWrap.h"
 
 #include "DrawHelper.h"
@@ -28,6 +72,7 @@
 using namespace OVR;
 
 struct Rom {
+  bool isGbc;
   std::string RomName;
   std::string FullPath;
   std::string FullPathNorm;
@@ -61,12 +106,12 @@ struct LoadedGame {
 #define SCROLL_TIME_MOVE 1
 
 #define MAX_SAVESLOTS 10
-#define STR_VERSION "ver.0.9"
+#define STR_VERSION "ver.1.0"
 
 #define MoveSpeed 0.00390625f
 #define ZoomSpeed 0.03125f
-const float MinRadius = 0.5f;
-const float MaxRadius = 5.5f;
+#define MIN_RADIUS 0.5f
+#define MAX_RADIUS 5.5f
 
 #define GL(func) func;
 
@@ -151,7 +196,7 @@ GLuint MenuFrameBuffer = 0;
 
 uint32_t *texData;
 
-GLuint textureIdScreen, textureIdMenu, textureIdSlotImage;
+GLuint textureIdScreen, textureIdMenu, textureIdSlotImage, textureGbIconId, textureGbcIconId;
 
 const int paletteCount = 31;
 static GB_Color palettes[paletteCount][4] = {
@@ -283,9 +328,6 @@ static GB_Color palettes[paletteCount][4] = {
 
 static GB_Color *current_palette = palettes[selectedPalette];
 
-// TODO version 1.0
-// ..
-
 // TODO version 1.1
 // fix bugs
 // look at the best possible menu resolution
@@ -412,6 +454,65 @@ OvrApp::~OvrApp() {
   SafeDelete(core);
 }
 
+/// Filename can be KTX or DDS files
+GLuint Load_Texture(const void *Data, std::size_t Size) {
+  LOG("Loading Texture");
+
+  gli::texture Texture = gli::load((const char *)Data, Size);
+  if (Texture.empty()) {
+    LOG("Faild loading");
+    return 0;
+  }
+  LOG("Loaded TEXTURE");
+
+  // gli::gl GLF(gli::gl::PROFILE_ES30);
+  gli::gl GL1(gli::gl::PROFILE_ES30);
+  gli::gl::format const Format = GL1.translate(Texture.format(), Texture.swizzles());
+  GLenum Target = GL1.translate(Texture.target());
+
+  GLuint TextureName = 0;
+  glGenTextures(1, &TextureName);
+  glBindTexture(Target, TextureName);
+  glTexParameteri(Target, GL_TEXTURE_BASE_LEVEL, 0);
+  glTexParameteri(Target, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(Texture.levels() - 1));
+  glTexParameteri(Target, GL_TEXTURE_SWIZZLE_R, Format.Swizzles[0]);
+  glTexParameteri(Target, GL_TEXTURE_SWIZZLE_G, Format.Swizzles[1]);
+  glTexParameteri(Target, GL_TEXTURE_SWIZZLE_B, Format.Swizzles[2]);
+  glTexParameteri(Target, GL_TEXTURE_SWIZZLE_A, Format.Swizzles[3]);
+
+  glm::tvec3<GLsizei> const Extent(Texture.extent());
+  GLsizei const FaceTotal = static_cast<GLsizei>(Texture.layers() * Texture.faces());
+
+  glTexStorage2D(Target, static_cast<GLint>(Texture.levels()), Format.Internal, Extent.x,
+                 Texture.target() == gli::TARGET_2D ? Extent.y : FaceTotal);
+
+  for (std::size_t Layer = 0; Layer < Texture.layers(); ++Layer)
+    for (std::size_t Face = 0; Face < Texture.faces(); ++Face)
+      for (std::size_t Level = 0; Level < Texture.levels(); ++Level) {
+        GLsizei const LayerGL = static_cast<GLsizei>(Layer);
+        glm::tvec3<GLsizei> Extent(Texture.extent(Level));
+        Target = gli::is_target_cube(Texture.target())
+                     ? static_cast<GLenum>(GL_TEXTURE_CUBE_MAP_POSITIVE_X + Face)
+                     : Target;
+
+        if (gli::is_compressed(Texture.format())) {
+          if (Texture.target() == gli::TARGET_1D_ARRAY) LOG("TARGET_1D");
+          if (Texture.target() == gli::TARGET_2D) LOG("TARGET_2D");
+
+          glCompressedTexSubImage2D(Target, static_cast<GLint>(Level), 0, 0, Extent.x,
+                                    Texture.target() == gli::TARGET_1D_ARRAY ? LayerGL : Extent.y,
+                                    Format.Internal, static_cast<GLsizei>(Texture.size(Level)),
+                                    Texture.data(Layer, Face, Level));
+        } else {
+          glTexSubImage2D(Target, static_cast<GLint>(Level), 0, 0, Extent.x,
+                          Texture.target() == gli::TARGET_1D_ARRAY ? LayerGL : Extent.y,
+                          Format.External, Format.Type, Texture.data(Layer, Face, Level));
+        }
+      }
+
+  return TextureName;
+}
+
 void OvrApp::Configure(ovrSettings &settings) {
   settings.CpuLevel = 0;
   settings.GpuLevel = 0;
@@ -427,7 +528,7 @@ void OvrApp::Configure(ovrSettings &settings) {
 }
 
 void SetUpScrollList() {
-  listItemSize = (fontList.FontSize + 7);
+  listItemSize = (fontList.FontSize + 11);
   menuItemSize = (fontMenu.FontSize + 7);
   listPosX = 5;
   listPosY = HEADER_HEIGHT + 10;
@@ -594,8 +695,8 @@ void SaveSettings() {
   outfile.write(reinterpret_cast<const char *>(&selectedPalette), sizeof(int));
   outfile.write(reinterpret_cast<const char *>(&saveSlot), sizeof(int));
   outfile.write(reinterpret_cast<const char *>(&forceDMG), sizeof(bool));
-  outfile.write(reinterpret_cast<const char *>(&LayerBuilder::screenYaw), sizeof(float));
   outfile.write(reinterpret_cast<const char *>(&LayerBuilder::screenPitch), sizeof(float));
+  outfile.write(reinterpret_cast<const char *>(&LayerBuilder::screenYaw), sizeof(float));
   outfile.write(reinterpret_cast<const char *>(&LayerBuilder::screenRoll), sizeof(float));
   outfile.write(reinterpret_cast<const char *>(&LayerBuilder::radiusMenuScreen), sizeof(float));
   outfile.write(reinterpret_cast<const char *>(&LayerBuilder::screenSize), sizeof(float));
@@ -619,8 +720,8 @@ void LoadSettings() {
       file.read((char *)&selectedPalette, sizeof(int));
       file.read((char *)&saveSlot, sizeof(int));
       file.read((char *)&forceDMG, sizeof(bool));
-      file.read((char *)&LayerBuilder::screenYaw, sizeof(float));
       file.read((char *)&LayerBuilder::screenPitch, sizeof(float));
+      file.read((char *)&LayerBuilder::screenYaw, sizeof(float));
       file.read((char *)&LayerBuilder::screenRoll, sizeof(float));
       file.read((char *)&LayerBuilder::radiusMenuScreen, sizeof(float));
       file.read((char *)&LayerBuilder::screenSize, sizeof(float));
@@ -809,6 +910,11 @@ void ScanDirectory() {
           newRom.FullPath = fullPath;
           newRom.FullPathNorm = listNameSave;
           newRom.SavePath = listNameSave + ".srm";
+
+          // check if it is a gbc rom
+          newRom.isGbc = (strFilename.find(".gbc") != std::string::npos ||
+                          strFilename.find(".cgb") != std::string::npos);
+
           romFiles.push_back(newRom);
 
           LOG("found rom: %s %s %s", newRom.RomName.c_str(), newRom.FullPath.c_str(),
@@ -848,7 +954,7 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
     FontManager::Init(menuWidth, menuHeight);
     FontManager::LoadFont(&fontHeader, const_cast<char *>("/system/fonts/Roboto-Regular.ttf"), 55);
     FontManager::LoadFont(&fontMenu, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 22);
-    FontManager::LoadFont(&fontList, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 18);
+    FontManager::LoadFont(&fontList, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 20);
     FontManager::LoadFont(&fontSmall, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 16);
     FontManager::LoadFont(&fontSlot, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 26);
     FontManager::CloseFontLoader();
@@ -880,6 +986,23 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
     materialParms.UseSrgbTextureFormats = false;
 
     const char *sceneUri = "apk:///assets/box.ovrscene";
+
+    /*
+    std::string strDir = storageDir;
+    strDir.append("/gb_cartridge.dds");
+    textureGbIconId = Load_Texture(strDir.c_str());
+
+    strDir = storageDir;
+    strDir.append("/gbc_cartridge.dds");
+    textureGbcIconId = Load_Texture(strDir.c_str());
+    */
+
+    // load icons
+    MemBufferT<uint8_t> buffer;
+    if (app->GetFileSys().ReadFile("apk:///assets/gb_cartridge.dds", buffer))
+      textureGbIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/gbc_cartridge.dds", buffer))
+      textureGbcIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
 
     SceneModel =
         LoadModelFile(app->GetFileSys(), sceneUri, Scene.GetDefaultGLPrograms(), materialParms);
@@ -1165,7 +1288,7 @@ void DrawGUI() {
 
   // state screenshot background
   if (currentMenu == &mainMenu && !romSelection)
-    DrawRectangle(menuWidth - 240 - 20, HEADER_HEIGHT + 20, 240, 216, {0.1f, 0.1f, 0.1f, 0.040f});
+    DrawRectangle(menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288, {0.1f, 0.1f, 0.1f, 0.040f});
 
   if (romSelection) {
     GLfloat recHeight = (float)scrollbarHeight * maxListItems / romFiles.size();
@@ -1183,6 +1306,15 @@ void DrawGUI() {
                   {0.15f, 0.15f, 0.15f, 0.05f});
     // slider
     DrawRectangle(listPosX, listPosY + recPosY, scrollbarWidth, recHeight, sliderColor);
+
+    // draw the cartridge icons
+    for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
+      if (i < romFiles.size()) {
+        DrawTexture(romFiles[i].isGbc ? textureGbcIconId : textureGbIconId,
+                    listPosX + scrollbarWidth + 15, listStartY + listItemSize * (i - menuListState),
+                    21, 24, {1.0f, 1.0f, 1.0f, 1.0f});
+      }
+    }
   }
 
   FontManager::Begin();
@@ -1207,12 +1339,13 @@ void DrawGUI() {
 
     // save slot image
     if (currentMenu == &mainMenu) {
-      if (currentGame->saveStates[saveSlot].filled)
+      if (currentGame->saveStates[saveSlot].filled) {
         DrawTexture(textureIdSlotImage, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 160 * 2, 144 * 2,
                     {1.0f, 1.0f, 1.0f, 1.0f});
-      else {
-        FontManager::RenderText(fontSlot, strNoSave, menuWidth - 120 - 20 - strNoSaveWidth / 2,
-                                HEADER_HEIGHT + 20 + 108 - 22, 1.0f, Vector3f(0.95f, 0.95f, 0.95f));
+      } else {
+        // menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288
+        FontManager::RenderText(fontSlot, strNoSave, menuWidth - 160 - 20 - strNoSaveWidth / 2,
+                                HEADER_HEIGHT + 20 + 144 - 26, 1.0f, Vector3f(0.95f, 0.95f, 0.95f));
       }
     } else if (currentMenu == &settingsMenu) {
       DrawTexture(textureIdScreen, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 144 * 2,
@@ -1222,7 +1355,7 @@ void DrawGUI() {
     for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
       if (i < romFiles.size()) {
         FontManager::RenderText(
-            fontList, romFiles[i].RomName, listPosX + scrollbarWidth + 10,
+            fontList, romFiles[i].RomName, listPosX + scrollbarWidth + 44,
             listStartY + listItemSize * (i - menuListState), 1.0f,
             ((uint)currentRomListSelection == i) ? menuSelectionColor : menuColor);
       } else
@@ -1433,26 +1566,28 @@ void OnClickSaveSlotRight(MenuItem *item) {
   SaveSettings();
 }
 
+float ToDegree(float radian) { return (int)(180.0 / VRAPI_PI * radian * 10) / 10.0f; }
+
 void MoveYaw(MenuItem *item, float dir) {
   LayerBuilder::screenYaw -= dir;
-  item->Text = "Yaw: " + to_string(LayerBuilder::screenYaw);
+  item->Text = "Yaw: " + to_string(ToDegree(LayerBuilder::screenYaw));
 }
 
 void MovePitch(MenuItem *item, float dir) {
   LayerBuilder::screenPitch -= dir;
-  item->Text = "Pitch: " + to_string(LayerBuilder::screenPitch);
+  item->Text = "Pitch: " + to_string(ToDegree(LayerBuilder::screenPitch));
 }
 
 void MoveRoll(MenuItem *item, float dir) {
   LayerBuilder::screenRoll -= dir;
-  item->Text = "Roll: " + to_string(LayerBuilder::screenRoll);
+  item->Text = "Roll: " + to_string(ToDegree(LayerBuilder::screenRoll));
 }
 
 void ChangeDistance(MenuItem *item, float dir) {
   LayerBuilder::radiusMenuScreen -= dir;
 
-  if (LayerBuilder::radiusMenuScreen < MinRadius) LayerBuilder::radiusMenuScreen = MinRadius;
-  if (LayerBuilder::radiusMenuScreen > MaxRadius) LayerBuilder::radiusMenuScreen = MaxRadius;
+  if (LayerBuilder::radiusMenuScreen < MIN_RADIUS) LayerBuilder::radiusMenuScreen = MIN_RADIUS;
+  if (LayerBuilder::radiusMenuScreen > MAX_RADIUS) LayerBuilder::radiusMenuScreen = MAX_RADIUS;
 
   item->Text = "Distance: " + to_string(LayerBuilder::radiusMenuScreen);
 }
@@ -1512,8 +1647,6 @@ void OvrApp::SetUpMenu() {
   mainMenu.MenuItems.push_back({"Settings", OnClickSettingsGame, nullptr, nullptr});
 
   std::string strPalette = "Palette: " + to_string(selectedPalette);
-  // std::string strAllowUpDown = "Allow Up+Down / Left+Right: ";
-  // strAllowUpDown += (allowUpDownSlashLeftRight ? "Enabled" : "Disabled");
 
   settingsMenu.MenuItems.push_back(
       {strPalette, OnClickChangePaletteRight, OnClickChangePaletteLeft, OnClickChangePaletteRight});
@@ -1527,19 +1660,25 @@ void OvrApp::SetUpMenu() {
   settingsMenu.BackPress = OnBackPressedSettings;
 
   // move menu stuff
-  moveMenu.MenuItems.push_back({"Yaw: " + to_string(LayerBuilder::screenYaw), nullptr,
-                                OnClickMoveScreenYawLeft, OnClickMoveScreenYawRight});
-  moveMenu.MenuItems.push_back({"Pitch: " + to_string(LayerBuilder::screenPitch), nullptr,
-                                OnClickMoveScreenPitchLeft, OnClickMoveScreenPitchRight});
-  moveMenu.MenuItems.push_back({"Roll: " + to_string(LayerBuilder::screenRoll), nullptr,
-                                OnClickMoveScreenRollLeft, OnClickMoveScreenRollRight});
-  moveMenu.MenuItems.push_back({"Distance: " + to_string(LayerBuilder::radiusMenuScreen), nullptr,
-                                OnClickMoveScreenDistanceLeft, OnClickMoveScreenDistanceRight});
-  moveMenu.MenuItems.push_back({"Scale: " + to_string(LayerBuilder::screenSize), nullptr,
-                                OnClickMoveScreenScaleLeft, OnClickMoveScreenScaleRight});
+  moveMenu.MenuItems.push_back({"", nullptr, OnClickMoveScreenYawLeft, OnClickMoveScreenYawRight});
+  moveMenu.MenuItems.push_back(
+      {"", nullptr, OnClickMoveScreenPitchLeft, OnClickMoveScreenPitchRight});
+  moveMenu.MenuItems.push_back(
+      {"", nullptr, OnClickMoveScreenRollLeft, OnClickMoveScreenRollRight});
+  moveMenu.MenuItems.push_back(
+      {"", nullptr, OnClickMoveScreenDistanceLeft, OnClickMoveScreenDistanceRight});
+  moveMenu.MenuItems.push_back(
+      {"", nullptr, OnClickMoveScreenScaleLeft, OnClickMoveScreenScaleRight});
   moveMenu.MenuItems.push_back({"Reset View", OnClickResetView, nullptr, nullptr});
   moveMenu.MenuItems.push_back({"Back", OnClickBackMove, nullptr, nullptr});
   moveMenu.BackPress = OnBackPressedMove;
+
+  // @HACK: updates the visible values
+  MoveYaw(&moveMenu.MenuItems[0], 0);
+  MovePitch(&moveMenu.MenuItems[1], 0);
+  MoveRoll(&moveMenu.MenuItems[2], 0);
+  ChangeDistance(&moveMenu.MenuItems[3], 0);
+  ChangeScale(&moveMenu.MenuItems[4], 0);
 
   strVersionWidth = GetWidth(fontSmall, STR_VERSION);
   strMoveMenuTextWidth = GetWidth(fontMenu, strMoveMenu);

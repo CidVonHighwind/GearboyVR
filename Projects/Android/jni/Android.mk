@@ -14,7 +14,8 @@ LOCAL_SHARED_LIBRARIES	:= vrapi
 # for native audio
 LOCAL_LDLIBS    += -lOpenSLES
 
-LOCAL_C_INCLUDES := ../../../../../FreeType ../../../../../Gearboy
+APP_STL := gnustl_static
+LOCAL_C_INCLUDES := ../../../../../FreeType ../../../../../Gearboy ../../../../../
 
 include $(BUILD_SHARED_LIBRARY)
 

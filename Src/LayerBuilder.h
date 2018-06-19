@@ -4,9 +4,7 @@ using namespace OVR;
 
 namespace LayerBuilder {
 
-extern float screenYaw, screenPitch, screenRoll, radiusMenuScreen, screenSize;
-
-void MoveScreen(const ovrFrameInput &vrFrame);
+extern float screenPitch, screenYaw, screenRoll, radiusMenuScreen, screenSize;
 
 void UpdateDirection(const ovrFrameInput &vrFrame);
 

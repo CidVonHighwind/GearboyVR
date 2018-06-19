@@ -2,16 +2,13 @@
 #include <VrApi_Helpers.h>
 #include <VrApi_Types.h>
 #include "OVR_Input.h"
-#include "glm/gtc/quaternion.hpp"
+#include <glm/gtc/quaternion.hpp>
 
 using namespace OVR;
 
 namespace LayerBuilder {
 
-#define MoveSpeed 0.005f
-#define ZoomSpeed 0.05f
-const float MinRadius = 0.5f;
-const float MaxRadius = 10.0f;
+#define FOLLOW_SPEED 0.03f
 
 float screenYaw = 0;
 float screenPitch = 0;
@@ -49,43 +46,15 @@ static void toEulerAngle(const ovrQuatf &q, float &roll, float &pitch, float &ya
   yaw = atan2f(siny, cosy);
 }
 
-void MoveScreen(const ovrFrameInput &vrFrame) {
-  if (vrFrame.Input.buttonState & BUTTON_LSTICK_RIGHT ||
-      vrFrame.Input.buttonState & BUTTON_DPAD_RIGHT)
-    screenPitch += MoveSpeed;
-  if (vrFrame.Input.buttonState & BUTTON_LSTICK_LEFT ||
-      vrFrame.Input.buttonState & BUTTON_DPAD_LEFT)
-    screenPitch -= MoveSpeed;
-  if (vrFrame.Input.buttonState & BUTTON_LSTICK_UP || vrFrame.Input.buttonState & BUTTON_DPAD_UP)
-    screenYaw += MoveSpeed;
-  if (vrFrame.Input.buttonState & BUTTON_LSTICK_DOWN ||
-      vrFrame.Input.buttonState & BUTTON_DPAD_DOWN)
-    screenYaw -= MoveSpeed;
-  if (vrFrame.Input.buttonState & BUTTON_LEFT_TRIGGER) screenRoll += MoveSpeed;
-  if (vrFrame.Input.buttonState & BUTTON_RIGHT_TRIGGER) screenRoll -= MoveSpeed;
-
-  if (vrFrame.Input.buttonState & BUTTON_Y) {
-    radiusMenuScreen -= ZoomSpeed;
-    if (radiusMenuScreen < MinRadius) radiusMenuScreen = MinRadius;
-  }
-  if (vrFrame.Input.buttonState & BUTTON_A) {
-    radiusMenuScreen += ZoomSpeed;
-    if (radiusMenuScreen > MaxRadius) radiusMenuScreen = MaxRadius;
-  }
-}
-
 void UpdateDirection(const ovrFrameInput &vrFrame) {
   goalQuat.w = vrFrame.Tracking.HeadPose.Pose.Orientation.w;
   goalQuat.x = vrFrame.Tracking.HeadPose.Pose.Orientation.x;
   goalQuat.y = vrFrame.Tracking.HeadPose.Pose.Orientation.y;
   goalQuat.z = vrFrame.Tracking.HeadPose.Pose.Orientation.z;
 
-  currentQuat = glm::mix(currentQuat, goalQuat, 0.040f);
+  currentQuat = glm::mix(currentQuat, goalQuat, FOLLOW_SPEED);
 
-  currentfQuat.w = currentQuat.w;
-  currentfQuat.x = currentQuat.x;
-  currentfQuat.y = currentQuat.y;
-  currentfQuat.z = currentQuat.z;
+  currentfQuat = {currentQuat.x, currentQuat.y, currentQuat.z, currentQuat.w};
 }
 
 // Assumes landscape cylinder shape.
@@ -117,8 +86,8 @@ static ovrMatrix4f CylinderModelMatrix2(const int texHeight, const ovrVector3f t
   const ovrMatrix4f transMatrix =
       ovrMatrix4f_CreateTranslation(translation.x, translation.y, translation.z);
 
-  const ovrMatrix4f rotXMatrix = ovrMatrix4f_CreateRotation(screenYaw, 0.0f, 0.0f);
-  const ovrMatrix4f rotYMatrix = ovrMatrix4f_CreateRotation(0.0f, screenPitch, 0.0f);
+  const ovrMatrix4f rotXMatrix = ovrMatrix4f_CreateRotation(screenPitch, 0.0f, 0.0f);
+  const ovrMatrix4f rotYMatrix = ovrMatrix4f_CreateRotation(0.0f, screenYaw, 0.0f);
   const ovrMatrix4f rotZMatrix = ovrMatrix4f_CreateRotation(0.0f, 0.0f, screenRoll);
 
   if (q == nullptr) {
