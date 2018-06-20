@@ -24,7 +24,5 @@
 
 void InitDrawHelper(GLfloat menuWidth, GLfloat menuHeight);
 
-void DrawRectangle(GLfloat posX, GLfloat posY, GLfloat width, GLfloat height, ovrVector4f color);
-
 void DrawTexture(GLuint textureId, GLfloat posX, GLfloat posY, GLfloat width, GLfloat height,
                  ovrVector4f color);

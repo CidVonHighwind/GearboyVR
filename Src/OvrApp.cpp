@@ -2,6 +2,7 @@
 #include <OVR_Input.h>
 #include <VrApi_Input.h>
 #include <VrApi_Types.h>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -196,7 +197,8 @@ GLuint MenuFrameBuffer = 0;
 
 uint32_t *texData;
 
-GLuint textureIdScreen, textureIdMenu, textureIdSlotImage, textureGbIconId, textureGbcIconId;
+GLuint textureIdScreen, textureIdMenu, textureIdSlotImage, textureHeaderIconId, textureGbIconId,
+    textureGbcIconId, textureSaveIconId, textureLoadIconId, textureWhiteId;
 
 const int paletteCount = 31;
 static GB_Color palettes[paletteCount][4] = {
@@ -356,6 +358,8 @@ std::string to_string(T value) {
 }
 
 struct MenuItem {
+  GLuint iconId;
+
   std::string Text;
 
   void (*PressFunction)(MenuItem *item);
@@ -630,6 +634,18 @@ void CreateSlotImage() {
   glBindTexture(GL_TEXTURE_2D, 0);
 }
 
+void CreateWhiteImage() {
+  uint32_t white = 0xFFFFFFFF;
+  glGenTextures(1, &textureWhiteId);
+  glBindTexture(GL_TEXTURE_2D, textureWhiteId);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &white);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+  // glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+  glBindTexture(GL_TEXTURE_2D, 0);
+}
+
 void UpdateSlotImage() {
   glBindTexture(GL_TEXTURE_2D, textureIdSlotImage);
   glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VIDEO_WIDTH, VIDEO_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE,
@@ -776,7 +792,6 @@ bool LoadStateImage(int slot) {
 }
 
 void SaveState(int slot) {
-  // TODO name should be compatible with retroarch save states
   std::string savePath = stateFolderPath + CurrentRom->RomName + ".state";
   if (slot > 0) savePath += ('0' + slot);
 
@@ -947,6 +962,7 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
     LoadSettings();
 
     CreateSlotImage();
+    CreateWhiteImage();
 
     LOG("set upt palette");
     SetPalette(palettes[selectedPalette]);
@@ -958,6 +974,19 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
     FontManager::LoadFont(&fontSmall, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 16);
     FontManager::LoadFont(&fontSlot, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 26);
     FontManager::CloseFontLoader();
+
+    // load icons
+    MemBufferT<uint8_t> buffer;
+    if (app->GetFileSys().ReadFile("apk:///assets/header_icon.dds", buffer))
+      textureHeaderIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/gb_cartridge.dds", buffer))
+      textureGbIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/gbc_cartridge.dds", buffer))
+      textureGbcIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/save_icon.dds", buffer))
+      textureSaveIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/load_icon.dds", buffer))
+      textureLoadIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
 
     ScanDirectory();
 
@@ -986,23 +1015,6 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
     materialParms.UseSrgbTextureFormats = false;
 
     const char *sceneUri = "apk:///assets/box.ovrscene";
-
-    /*
-    std::string strDir = storageDir;
-    strDir.append("/gb_cartridge.dds");
-    textureGbIconId = Load_Texture(strDir.c_str());
-
-    strDir = storageDir;
-    strDir.append("/gbc_cartridge.dds");
-    textureGbcIconId = Load_Texture(strDir.c_str());
-    */
-
-    // load icons
-    MemBufferT<uint8_t> buffer;
-    if (app->GetFileSys().ReadFile("apk:///assets/gb_cartridge.dds", buffer))
-      textureGbIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/gbc_cartridge.dds", buffer))
-      textureGbcIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
 
     SceneModel =
         LoadModelFile(app->GetFileSys(), sceneUri, Scene.GetDefaultGLPrograms(), materialParms);
@@ -1264,7 +1276,7 @@ void UpdateGUI(const ovrFrameInput &vrFrame) {
   }
 }
 
-void DrawGUI() {
+void BeginTextureDrawing() {
   glDisable(GL_CULL_FACE);
   glDisable(GL_DEPTH_TEST);
   glEnable(GL_BLEND);
@@ -1272,6 +1284,100 @@ void DrawGUI() {
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glBlendFunc(GL_DST_ALPHA, GL_ONE);
 
+  glBlendEquation(GL_FUNC_ADD);
+}
+
+void EndTextureDrawing() {}
+
+void DrawMenu() {
+  // draw menu strings
+  FontManager::Begin();
+  for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
+    FontManager::RenderText(
+        fontMenu, currentMenu->MenuItems[i].Text, listPosX + 37,
+        HEADER_HEIGHT + 20 + menuItemSize * i, 1.0f,
+        ((uint)currentMenu->CurrentSelection == i) ? menuSelectionColor : menuColor);
+  FontManager::Close();
+
+  BeginTextureDrawing();
+
+  // draw the menu icons
+  for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
+    if (currentMenu->MenuItems[i].iconId > 0)
+      DrawTexture(currentMenu->MenuItems[i].iconId, listPosX + 10,
+                  HEADER_HEIGHT + 20 + menuItemSize * i + menuItemSize / 2 - 10, 17, 21,
+                  {1.0f, 1.0f, 1.0f, 1.0f});
+
+  // save slot image
+  if (currentMenu == &mainMenu) {
+    if (currentGame->saveStates[saveSlot].filled) {
+      DrawTexture(textureIdSlotImage, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 160 * 2, 144 * 2,
+                  {1.0f, 1.0f, 1.0f, 1.0f});
+    } else {
+      // state screenshot background
+      DrawTexture(textureWhiteId, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288,
+                  {0.0f, 0.0f, 0.0f, 0.045f});
+
+      // menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288
+      FontManager::Begin();
+      FontManager::RenderText(fontSlot, strNoSave, menuWidth - 160 - 20 - strNoSaveWidth / 2,
+                              HEADER_HEIGHT + 20 + 144 - 26, 1.0f, Vector3f(0.95f, 0.95f, 0.95f));
+      FontManager::Close();
+    }
+  } else if (currentMenu == &settingsMenu) {
+    DrawTexture(textureIdScreen, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 144 * 2,
+                {1.0f, 1.0f, 1.0f, 1.0f});
+  }
+}
+
+void DrawRomList() {
+  // calculate the slider position
+  GLfloat recHeight = (float)scrollbarHeight * maxListItems / romFiles.size();
+
+  GLfloat sliderPercentage = 0;
+  if (romFiles.size() > maxListItems)
+    sliderPercentage = (menuListState / (float)(romFiles.size() - maxListItems));
+  else
+    sliderPercentage = 0;
+
+  GLfloat recPosY = (scrollbarHeight - recHeight) * sliderPercentage;
+
+  // slider background
+  DrawTexture(textureWhiteId, listPosX, listPosY, scrollbarWidth, scrollbarHeight,
+              {0.15f, 0.15f, 0.15f, 0.05f});
+  // slider
+  DrawTexture(textureWhiteId, listPosX, listPosY + recPosY, scrollbarWidth, recHeight, sliderColor);
+
+  // draw the cartridge icons
+  for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
+    if (i < romFiles.size()) {
+      DrawTexture(romFiles[i].isGbc ? textureGbcIconId : textureGbIconId,
+                  listPosX + scrollbarWidth + 15, listStartY + listItemSize * (i - menuListState),
+                  21, 24, {1.0f, 1.0f, 1.0f, 1.0f});
+    }
+  }
+
+  FontManager::Begin();
+  // draw rom list
+  for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
+    if (i < romFiles.size()) {
+      FontManager::RenderText(
+          fontList, romFiles[i].RomName, listPosX + scrollbarWidth + 44,
+          listStartY + listItemSize * (i - menuListState), 1.0f,
+          ((uint)currentRomListSelection == i) ? menuSelectionColor : menuColor);
+    } else
+      break;
+  }
+  FontManager::Close();
+}
+
+void DrawGUI() {
+  glDisable(GL_CULL_FACE);
+  glDisable(GL_DEPTH_TEST);
+  glEnable(GL_BLEND);
+
+  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+  glBlendFunc(GL_DST_ALPHA, GL_ONE);
   glBlendEquation(GL_FUNC_ADD);
 
   glBindFramebuffer(GL_FRAMEBUFFER, MenuFrameBuffer);
@@ -1284,86 +1390,20 @@ void DrawGUI() {
   glClear(GL_COLOR_BUFFER_BIT);
 
   // header
-  DrawRectangle(0, 0, menuWidth, HEADER_HEIGHT, {0.1f, 0.1f, 0.1f, 0.040f});
-
-  // state screenshot background
-  if (currentMenu == &mainMenu && !romSelection)
-    DrawRectangle(menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288, {0.1f, 0.1f, 0.1f, 0.040f});
-
-  if (romSelection) {
-    GLfloat recHeight = (float)scrollbarHeight * maxListItems / romFiles.size();
-
-    GLfloat sliderPercentage = 0;
-    if (romFiles.size() > maxListItems)
-      sliderPercentage = (menuListState / (float)(romFiles.size() - maxListItems));
-    else
-      sliderPercentage = 0;
-
-    GLfloat recPosY = (scrollbarHeight - recHeight) * sliderPercentage;
-
-    // slider background
-    DrawRectangle(listPosX, listPosY, scrollbarWidth, scrollbarHeight,
-                  {0.15f, 0.15f, 0.15f, 0.05f});
-    // slider
-    DrawRectangle(listPosX, listPosY + recPosY, scrollbarWidth, recHeight, sliderColor);
-
-    // draw the cartridge icons
-    for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
-      if (i < romFiles.size()) {
-        DrawTexture(romFiles[i].isGbc ? textureGbcIconId : textureGbIconId,
-                    listPosX + scrollbarWidth + 15, listStartY + listItemSize * (i - menuListState),
-                    21, 24, {1.0f, 1.0f, 1.0f, 1.0f});
-      }
-    }
-  }
+  DrawTexture(textureWhiteId, 0, 0, menuWidth, HEADER_HEIGHT, {0.0f, 0.0f, 0.0f, 0.045f});
+  // icon
+  DrawTexture(textureHeaderIconId, 5, 5, 65, 65, {0.9f, 0.9f, 0.9f, 0.9f});
 
   FontManager::Begin();
-
-  FontManager::RenderText(fontHeader, strHeader, 5.0f, 0.0f, 1.0f, headerColor);
+  FontManager::RenderText(fontHeader, strHeader, 70, 0.0f, 1.0f, headerColor);
   FontManager::RenderText(fontSmall, STR_VERSION, menuWidth - strVersionWidth - 5.0f,
                           HEADER_HEIGHT - 19, 1.0f, Vector3f(0.8f, 0.8f, 0.8f));
+  FontManager::Close();
 
-  if (!romSelection) {
-    if (currentMenu == &moveMenu) {
-      // update the position of the screen
-      // RenderText(fontMenu, strMoveMenu, menuWidth / 2 - strMoveMenuTextWidth
-      // / 2,
-      //           150, 1.0f, Vector3f(1.0f, 1.0f, 1.0f));
-    }
-
-    for (uint i = 0; i < currentMenu->MenuItems.size(); i++) {
-      FontManager::RenderText(
-          fontMenu, currentMenu->MenuItems[i].Text, listPosX + 20, 85 + menuItemSize * i, 1.0f,
-          ((uint)currentMenu->CurrentSelection == i) ? menuSelectionColor : menuColor);
-    }
-
-    // save slot image
-    if (currentMenu == &mainMenu) {
-      if (currentGame->saveStates[saveSlot].filled) {
-        DrawTexture(textureIdSlotImage, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 160 * 2, 144 * 2,
-                    {1.0f, 1.0f, 1.0f, 1.0f});
-      } else {
-        // menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288
-        FontManager::RenderText(fontSlot, strNoSave, menuWidth - 160 - 20 - strNoSaveWidth / 2,
-                                HEADER_HEIGHT + 20 + 144 - 26, 1.0f, Vector3f(0.95f, 0.95f, 0.95f));
-      }
-    } else if (currentMenu == &settingsMenu) {
-      DrawTexture(textureIdScreen, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 144 * 2,
-                  {1.0f, 1.0f, 1.0f, 1.0f});
-    }
-  } else {
-    for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
-      if (i < romFiles.size()) {
-        FontManager::RenderText(
-            fontList, romFiles[i].RomName, listPosX + scrollbarWidth + 44,
-            listStartY + listItemSize * (i - menuListState), 1.0f,
-            ((uint)currentRomListSelection == i) ? menuSelectionColor : menuColor);
-      } else
-        break;
-    }
-
-    FontManager::Close();
-  }
+  if (romSelection)
+    DrawRomList();
+  else
+    DrawMenu();
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
@@ -1637,40 +1677,45 @@ void OnClickMoveScreenScaleRight(MenuItem *item) { ChangeScale(item, -MoveSpeed)
 void OvrApp::SetUpMenu() {
   std::string strSaveSlot = "Save Slot: " + to_string(saveSlot);
 
-  mainMenu.MenuItems.push_back({"Resume Game", OnClickResumGame, nullptr, nullptr});
-  mainMenu.MenuItems.push_back({"Reset Game", OnClickResetGame, nullptr, nullptr});
   mainMenu.MenuItems.push_back(
-      {strSaveSlot, OnClickSaveSlotRight, OnClickSaveSlotLeft, OnClickSaveSlotRight});
-  mainMenu.MenuItems.push_back({"Save", OnClickSaveGame, nullptr, nullptr});
-  mainMenu.MenuItems.push_back({"Load", OnClickLoadGame, nullptr, nullptr});
-  mainMenu.MenuItems.push_back({"Load Rom", OnClickLoadRomGame, nullptr, nullptr});
-  mainMenu.MenuItems.push_back({"Settings", OnClickSettingsGame, nullptr, nullptr});
+      {textureSaveIconId, "Resume Game", OnClickResumGame, nullptr, nullptr});
+  mainMenu.MenuItems.push_back(
+      {textureSaveIconId, "Reset Game", OnClickResetGame, nullptr, nullptr});
+  mainMenu.MenuItems.push_back({textureSaveIconId, strSaveSlot, OnClickSaveSlotRight,
+                                OnClickSaveSlotLeft, OnClickSaveSlotRight});
+  mainMenu.MenuItems.push_back({textureSaveIconId, "Save", OnClickSaveGame, nullptr, nullptr});
+  mainMenu.MenuItems.push_back({textureLoadIconId, "Load", OnClickLoadGame, nullptr, nullptr});
+  mainMenu.MenuItems.push_back(
+      {textureLoadIconId, "Load Rom", OnClickLoadRomGame, nullptr, nullptr});
+  mainMenu.MenuItems.push_back(
+      {textureLoadIconId, "Settings", OnClickSettingsGame, nullptr, nullptr});
 
   std::string strPalette = "Palette: " + to_string(selectedPalette);
 
-  settingsMenu.MenuItems.push_back(
-      {strPalette, OnClickChangePaletteRight, OnClickChangePaletteLeft, OnClickChangePaletteRight});
-  settingsMenu.MenuItems.push_back({strForceDMG[forceDMG ? 0 : 1], OnClickEmulatedModel,
+  settingsMenu.MenuItems.push_back({0, strPalette, OnClickChangePaletteRight,
+                                    OnClickChangePaletteLeft, OnClickChangePaletteRight});
+  settingsMenu.MenuItems.push_back({0, strForceDMG[forceDMG ? 0 : 1], OnClickEmulatedModel,
                                     OnClickEmulatedModel, OnClickEmulatedModel});
 
   settingsMenu.MenuItems.push_back(
-      {strMove[followHead ? 0 : 1], OnClickFollowMode, OnClickFollowMode, OnClickFollowMode});
-  settingsMenu.MenuItems.push_back({"Move Screen", OnClickMoveScreen, nullptr, nullptr});
-  settingsMenu.MenuItems.push_back({"Back", OnClickBackAndSave, nullptr, nullptr});
+      {0, strMove[followHead ? 0 : 1], OnClickFollowMode, OnClickFollowMode, OnClickFollowMode});
+  settingsMenu.MenuItems.push_back({0, "Move Screen", OnClickMoveScreen, nullptr, nullptr});
+  settingsMenu.MenuItems.push_back({0, "Back", OnClickBackAndSave, nullptr, nullptr});
   settingsMenu.BackPress = OnBackPressedSettings;
 
   // move menu stuff
-  moveMenu.MenuItems.push_back({"", nullptr, OnClickMoveScreenYawLeft, OnClickMoveScreenYawRight});
   moveMenu.MenuItems.push_back(
-      {"", nullptr, OnClickMoveScreenPitchLeft, OnClickMoveScreenPitchRight});
+      {0, "", nullptr, OnClickMoveScreenYawLeft, OnClickMoveScreenYawRight});
   moveMenu.MenuItems.push_back(
-      {"", nullptr, OnClickMoveScreenRollLeft, OnClickMoveScreenRollRight});
+      {0, "", nullptr, OnClickMoveScreenPitchLeft, OnClickMoveScreenPitchRight});
   moveMenu.MenuItems.push_back(
-      {"", nullptr, OnClickMoveScreenDistanceLeft, OnClickMoveScreenDistanceRight});
+      {0, "", nullptr, OnClickMoveScreenRollLeft, OnClickMoveScreenRollRight});
   moveMenu.MenuItems.push_back(
-      {"", nullptr, OnClickMoveScreenScaleLeft, OnClickMoveScreenScaleRight});
-  moveMenu.MenuItems.push_back({"Reset View", OnClickResetView, nullptr, nullptr});
-  moveMenu.MenuItems.push_back({"Back", OnClickBackMove, nullptr, nullptr});
+      {0, "", nullptr, OnClickMoveScreenDistanceLeft, OnClickMoveScreenDistanceRight});
+  moveMenu.MenuItems.push_back(
+      {0, "", nullptr, OnClickMoveScreenScaleLeft, OnClickMoveScreenScaleRight});
+  moveMenu.MenuItems.push_back({0, "Reset View", OnClickResetView, nullptr, nullptr});
+  moveMenu.MenuItems.push_back({0, "Back", OnClickBackMove, nullptr, nullptr});
   moveMenu.BackPress = OnBackPressedMove;
 
   // @HACK: updates the visible values

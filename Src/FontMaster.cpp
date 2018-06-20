@@ -172,11 +172,17 @@ void Begin() {
   glBlendEquation(GL_FUNC_ADD);
 
   glActiveTexture(GL_TEXTURE0);
+
   glBindVertexArray(VAO);
 
   glUseProgram(glProgram.Program);
 
   fontTexture = 0;
+}
+
+void Close() {
+  glBindVertexArray(0);
+  glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat scale,
@@ -212,10 +218,10 @@ void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat
   // Activate corresponding render state
   glUniform3f(glGetUniformLocation(glProgram.Program, "textColor"), color.x, color.y, color.z);
 
-  if (fontTexture == 0 || fontTexture != font.textureID) {
-    fontTexture = font.textureID;
-    glBindTexture(GL_TEXTURE_2D, font.textureID);
-  }
+  // if (fontTexture == 0 || fontTexture != font.textureID) {
+  fontTexture = font.textureID;
+  glBindTexture(GL_TEXTURE_2D, font.textureID);
+  //}
 
   // Update content of VBO memory
   glBindBuffer(GL_ARRAY_BUFFER, VBO);
@@ -225,11 +231,4 @@ void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat
   glDrawArrays(GL_TRIANGLES, 0, 6 * text.length());
 }
 
-void Close() {
-  glDisable(GL_CULL_FACE);
-  glDisable(GL_BLEND);
-
-  glBindVertexArray(0);
-  glBindTexture(GL_TEXTURE_2D, 0);
-}
 }  // namespace FontManager

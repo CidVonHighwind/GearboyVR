@@ -1,50 +1,55 @@
-/************************************************************************************
-
-Filename    :   MainActivity.java
-Content     :   
-Created     :   
-Authors     :   
-
-Copyright   :   Copyright 2014 Oculus VR, LLC. All Rights reserved.
-
-
-*************************************************************************************/
 package com.a.gear.boy.go;
 
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
 import android.content.Intent;
+
 import com.oculus.vrappframework.VrActivity;
 
+import java.io.File;
+
 public class MainActivity extends VrActivity {
-	public static final String TAG = "GearboyVR";
+    public static final String TAG = "GearboyVR";
 
-	/** Load jni .so on initialization */
-	static {
-		Log.d(TAG, "LoadLibrary");
-		System.loadLibrary("ovrapp");
-	}
+    /** Load jni .so on initialization */
+    static {
+        Log.d(TAG, "LoadLibrary");
+        System.loadLibrary("ovrapp");
+    }
 
-    public static native long nativeSetAppInterface( VrActivity act, String fromPackageNameString, String commandString, String uriString );
+    public static native long nativeSetAppInterface(
+            VrActivity act, String fromPackageNameString, String commandString, String uriString);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-		Intent intent = getIntent();
-		String commandString = VrActivity.getCommandStringFromIntent( intent );
-		String fromPackageNameString = VrActivity.getPackageStringFromIntent( intent );
-		String uriString = VrActivity.getUriStringFromIntent( intent );
+        CreateFolder();
 
-		setAppPtr( nativeSetAppInterface( this, fromPackageNameString, commandString, uriString ) );
+        Intent intent = getIntent();
+        String commandString = VrActivity.getCommandStringFromIntent(intent);
+        String fromPackageNameString = VrActivity.getPackageStringFromIntent(intent);
+        String uriString = VrActivity.getUriStringFromIntent(intent);
+
+        setAppPtr(nativeSetAppInterface(this, fromPackageNameString, commandString, uriString));
     }
 
-	public String getExternalFilesDir() {
-		return this.getExternalFilesDir(null).toString();
-	}
+    public void CreateFolder() {
+        // states folder is needed to create state files
+        String storageDir = Environment.getExternalStorageDirectory().toString() + "/Roms/GB/States/";
+        File folder = new File(storageDir);
+        if (!folder.exists()) {
+            folder.mkdirs();
+            Log.d("MainActivity", "created /Roms/GB/States/ Directory");
+        }
+    }
 
-	public String getInternalStorageDir() {
-    	return Environment.getExternalStorageDirectory().toString();
+    public String getExternalFilesDir() {
+        return this.getExternalFilesDir(null).toString();
+    }
+
+    public String getInternalStorageDir() {
+        return Environment.getExternalStorageDirectory().toString();
     }
 }
