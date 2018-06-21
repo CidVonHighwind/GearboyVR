@@ -164,6 +164,8 @@ std::string strNoSave = "--Empty Slot--";
 std::string strMoveMenu = "<- Move Screen ->";
 int strMoveMenuTextWidth;
 int strNoSaveWidth;
+int button_mapping_a = BUTTON_A;
+int button_mapping_b = BUTTON_B;
 
 unsigned int lastButtonState;
 
@@ -180,6 +182,9 @@ std::string romFolderPath;
 Vector3f headerColor = Vector3f(1.0f, 1.0f, 1.0f);
 Vector3f menuColor = Vector3f(1.0f, 1.0f, 1.0f);
 Vector3f menuSelectionColor = Vector3f(0.0f, 0.5f, 0.8f);
+// TODO: change font draw to vector4f
+ovrVector4f menuColorTexture = {1.0f, 1.0f, 1.0f, 1.0f};
+ovrVector4f menuSelectionColorTexture = {0.0f, 0.5f, 0.8f, 1.0f};
 Vector4f sliderColor = Vector4f(1.0f, 1.0f, 1.0f, 1.0f);
 
 int buttonDownCount;
@@ -198,7 +203,10 @@ GLuint MenuFrameBuffer = 0;
 uint32_t *texData;
 
 GLuint textureIdScreen, textureIdMenu, textureIdSlotImage, textureHeaderIconId, textureGbIconId,
-    textureGbcIconId, textureSaveIconId, textureLoadIconId, textureWhiteId;
+    textureGbcIconId, textureSaveIconId, textureLoadIconId, textureWhiteId, texturePlayId,
+    textureResumeId, textureSettingsId, texuterLeftRightIconId, textureUpDownIconId,
+    textureResetIconId, textureSaveSlotIconId, textureLoadRomIconId, textureBackIconId, textureMoveIconId,
+    textureDistanceIconId, textureResetViewIconId, textureScaleIconId, textureMappingIconId;
 
 const int paletteCount = 31;
 static GB_Color palettes[paletteCount][4] = {
@@ -330,26 +338,6 @@ static GB_Color palettes[paletteCount][4] = {
 
 static GB_Color *current_palette = palettes[selectedPalette];
 
-// TODO version 1.1
-// fix bugs
-// look at the best possible menu resolution
-// draw button functions on the bottom of the menu
-// close emulator
-// show slot even when there is no image but a save state
-
-// TODO version 2.0
-// turbo button
-// time + batterie life
-// sprite palette and tile palette
-// change button placement
-// menu themes?
-// icons for gb and gbc games (maybe sort them together?)
-// menu icons
-// infinite states?
-// error messages if game could not be loaded, etc
-// sort paletts
-// palette settings for single game
-
 template <typename T>
 std::string to_string(T value) {
   std::ostringstream os;
@@ -378,7 +366,7 @@ struct Menu {
 };
 
 Menu *currentMenu;
-Menu mainMenu, settingsMenu, moveMenu;
+Menu mainMenu, settingsMenu, moveMenu, buttonMapMenu;
 
 #if defined(OVR_OS_ANDROID)
 
@@ -957,7 +945,7 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
     // TODO move me to the launch of the app
     InitAudio();
 
-    InitDrawHelper(menuWidth, menuHeight);
+    DrawHelper::Init(menuWidth, menuHeight);
 
     LoadSettings();
 
@@ -987,6 +975,38 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
       textureSaveIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
     if (app->GetFileSys().ReadFile("apk:///assets/load_icon.dds", buffer))
       textureLoadIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/play_icon.dds", buffer))
+      texturePlayId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/resume_icon.dds", buffer))
+      textureResumeId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/settings_icon.dds", buffer))
+      textureSettingsId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+
+    if (app->GetFileSys().ReadFile("apk:///assets/leftright_icon.dds", buffer))
+      texuterLeftRightIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/updown_icon.dds", buffer))
+      textureUpDownIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+
+    if (app->GetFileSys().ReadFile("apk:///assets/reset_icon.dds", buffer))
+      textureResetIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/save_slot_icon.dds", buffer))
+      textureSaveSlotIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/rom_list_icon.dds", buffer))
+      textureLoadRomIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+
+    if (app->GetFileSys().ReadFile("apk:///assets/move_icon.dds", buffer))
+      textureMoveIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/back_icon.dds", buffer))
+      textureBackIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/distance_icon.dds", buffer))
+      textureDistanceIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/reset_view_icon.dds", buffer))
+      textureResetViewIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/scale_icon.dds", buffer))
+      textureScaleIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    if (app->GetFileSys().ReadFile("apk:///assets/mapping_icon.dds", buffer))
+      textureMappingIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+
 
     ScanDirectory();
 
@@ -1061,14 +1081,14 @@ void UpdateCoreInput(const ovrFrameInput &vrFrame) {
   else
     core->KeyReleased(Right_Key);
 
-  if (vrFrame.Input.buttonState & BUTTON_A && !(lastButtonState & BUTTON_A))
+  if (vrFrame.Input.buttonState & button_mapping_a && !(lastButtonState & button_mapping_a))
     core->KeyPressed(A_Key);
-  else if (!(vrFrame.Input.buttonState & BUTTON_A) && lastButtonState & BUTTON_A)
+  else if (!(vrFrame.Input.buttonState & button_mapping_a) && lastButtonState & button_mapping_a)
     core->KeyReleased(A_Key);
 
-  if (vrFrame.Input.buttonState & BUTTON_B && !(lastButtonState & BUTTON_B))
+  if (vrFrame.Input.buttonState & button_mapping_b && !(lastButtonState & button_mapping_b))
     core->KeyPressed(B_Key);
-  else if (!(vrFrame.Input.buttonState & BUTTON_B) && lastButtonState & BUTTON_B)
+  else if (!(vrFrame.Input.buttonState & button_mapping_b) && lastButtonState & button_mapping_b)
     core->KeyReleased(B_Key);
 
   if (vrFrame.Input.buttonState & BUTTON_START && !(lastButtonState & BUTTON_START))
@@ -1276,47 +1296,34 @@ void UpdateGUI(const ovrFrameInput &vrFrame) {
   }
 }
 
-void BeginTextureDrawing() {
-  glDisable(GL_CULL_FACE);
-  glDisable(GL_DEPTH_TEST);
-  glEnable(GL_BLEND);
-
-  glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-  glBlendFunc(GL_DST_ALPHA, GL_ONE);
-
-  glBlendEquation(GL_FUNC_ADD);
-}
-
-void EndTextureDrawing() {}
-
 void DrawMenu() {
   // draw menu strings
   FontManager::Begin();
   for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
     FontManager::RenderText(
-        fontMenu, currentMenu->MenuItems[i].Text, listPosX + 37,
+        fontMenu, currentMenu->MenuItems[i].Text, listPosX + 55,
         HEADER_HEIGHT + 20 + menuItemSize * i, 1.0f,
         ((uint)currentMenu->CurrentSelection == i) ? menuSelectionColor : menuColor);
   FontManager::Close();
 
-  BeginTextureDrawing();
-
   // draw the menu icons
   for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
     if (currentMenu->MenuItems[i].iconId > 0)
-      DrawTexture(currentMenu->MenuItems[i].iconId, listPosX + 10,
-                  HEADER_HEIGHT + 20 + menuItemSize * i + menuItemSize / 2 - 10, 17, 21,
-                  {1.0f, 1.0f, 1.0f, 1.0f});
+      DrawHelper::DrawTexture(
+          currentMenu->MenuItems[i].iconId, listPosX + 20,
+          HEADER_HEIGHT + 20 + menuItemSize * i + menuItemSize / 2 - 13, 26, 26,
+          (((uint)currentMenu->CurrentSelection == i) ? menuSelectionColorTexture
+                                                      : menuColorTexture));
 
   // save slot image
   if (currentMenu == &mainMenu) {
     if (currentGame->saveStates[saveSlot].filled) {
-      DrawTexture(textureIdSlotImage, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 160 * 2, 144 * 2,
-                  {1.0f, 1.0f, 1.0f, 1.0f});
+      DrawHelper::DrawTexture(textureIdSlotImage, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 160 * 2,
+                              144 * 2, {1.0f, 1.0f, 1.0f, 1.0f});
     } else {
       // state screenshot background
-      DrawTexture(textureWhiteId, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288,
-                  {0.0f, 0.0f, 0.0f, 0.045f});
+      DrawHelper::DrawTexture(textureWhiteId, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288,
+                              {0.0f, 0.0f, 0.0f, 0.045f});
 
       // menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288
       FontManager::Begin();
@@ -1325,8 +1332,8 @@ void DrawMenu() {
       FontManager::Close();
     }
   } else if (currentMenu == &settingsMenu) {
-    DrawTexture(textureIdScreen, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 144 * 2,
-                {1.0f, 1.0f, 1.0f, 1.0f});
+    DrawHelper::DrawTexture(textureIdScreen, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 144 * 2,
+                            {1.0f, 1.0f, 1.0f, 1.0f});
   }
 }
 
@@ -1343,17 +1350,18 @@ void DrawRomList() {
   GLfloat recPosY = (scrollbarHeight - recHeight) * sliderPercentage;
 
   // slider background
-  DrawTexture(textureWhiteId, listPosX, listPosY, scrollbarWidth, scrollbarHeight,
-              {0.15f, 0.15f, 0.15f, 0.05f});
+  DrawHelper::DrawTexture(textureWhiteId, listPosX, listPosY, scrollbarWidth, scrollbarHeight,
+                          {0.15f, 0.15f, 0.15f, 0.05f});
   // slider
-  DrawTexture(textureWhiteId, listPosX, listPosY + recPosY, scrollbarWidth, recHeight, sliderColor);
+  DrawHelper::DrawTexture(textureWhiteId, listPosX, listPosY + recPosY, scrollbarWidth, recHeight,
+                          sliderColor);
 
   // draw the cartridge icons
   for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
     if (i < romFiles.size()) {
-      DrawTexture(romFiles[i].isGbc ? textureGbcIconId : textureGbIconId,
-                  listPosX + scrollbarWidth + 15, listStartY + listItemSize * (i - menuListState),
-                  21, 24, {1.0f, 1.0f, 1.0f, 1.0f});
+      DrawHelper::DrawTexture(
+          romFiles[i].isGbc ? textureGbcIconId : textureGbIconId, listPosX + scrollbarWidth + 15,
+          listStartY + listItemSize * (i - menuListState), 21, 24, {1.0f, 1.0f, 1.0f, 1.0f});
     }
   }
 
@@ -1390,9 +1398,10 @@ void DrawGUI() {
   glClear(GL_COLOR_BUFFER_BIT);
 
   // header
-  DrawTexture(textureWhiteId, 0, 0, menuWidth, HEADER_HEIGHT, {0.0f, 0.0f, 0.0f, 0.045f});
+  DrawHelper::DrawTexture(textureWhiteId, 0, 0, menuWidth, HEADER_HEIGHT,
+                          {0.0f, 0.0f, 0.0f, 0.045f});
   // icon
-  DrawTexture(textureHeaderIconId, 5, 5, 65, 65, {0.9f, 0.9f, 0.9f, 0.9f});
+  DrawHelper::DrawTexture(textureHeaderIconId, 5, 5, 65, 65, {0.9f, 0.9f, 0.9f, 0.9f});
 
   FontManager::Begin();
   FontManager::RenderText(fontHeader, strHeader, 70, 0.0f, 1.0f, headerColor);
@@ -1564,6 +1573,8 @@ void OnClickFollowMode(MenuItem *item) {
 
 void OnClickMoveScreen(MenuItem *item) { currentMenu = &moveMenu; }
 
+void OnClickMappingScreen(MenuItem *item) { currentMenu = &buttonMapMenu; }
+
 void OnClickAllowLeftRight(MenuItem *item) {
   allowUpDownSlashLeftRight = !allowUpDownSlashLeftRight;
   item->Text = "Allow Up+Down / Left+Right: ";
@@ -1654,6 +1665,24 @@ void OnClickResetView(MenuItem *item) {
   SaveSettings();
 }
 
+void MoveAButtonMapping(int dir) {
+  button_mapping_a = ((button_mapping_a << 1) | ((button_mapping_a & 0x8) >> 3)) & 0xF;
+}
+
+void MoveBButtonMapping(int dir) {
+  button_mapping_b = ((button_mapping_b << 1) | ((button_mapping_b & 0x8) >> 3)) & 0xF;
+}
+
+void OnClickChangeAButton(MenuItem *item) {
+  MoveAButtonMapping(0);
+  item->Text = "A Button: " + to_string(button_mapping_a);
+}
+
+void OnClickChangeBButton(MenuItem *item) {
+  MoveBButtonMapping(0);
+  item->Text = "B Button: " + to_string(button_mapping_b);
+}
+
 void OnClickMoveScreenYawLeft(MenuItem *item) { MoveYaw(item, MoveSpeed); }
 
 void OnClickMoveScreenYawRight(MenuItem *item) { MoveYaw(item, -MoveSpeed); }
@@ -1678,20 +1707,22 @@ void OvrApp::SetUpMenu() {
   std::string strSaveSlot = "Save Slot: " + to_string(saveSlot);
 
   mainMenu.MenuItems.push_back(
-      {textureSaveIconId, "Resume Game", OnClickResumGame, nullptr, nullptr});
+      {textureResumeId, "Resume Game", OnClickResumGame, nullptr, nullptr});
   mainMenu.MenuItems.push_back(
-      {textureSaveIconId, "Reset Game", OnClickResetGame, nullptr, nullptr});
-  mainMenu.MenuItems.push_back({textureSaveIconId, strSaveSlot, OnClickSaveSlotRight,
+      {textureResetIconId, "Reset Game", OnClickResetGame, nullptr, nullptr});
+  mainMenu.MenuItems.push_back({textureSaveSlotIconId, strSaveSlot, OnClickSaveSlotRight,
                                 OnClickSaveSlotLeft, OnClickSaveSlotRight});
   mainMenu.MenuItems.push_back({textureSaveIconId, "Save", OnClickSaveGame, nullptr, nullptr});
   mainMenu.MenuItems.push_back({textureLoadIconId, "Load", OnClickLoadGame, nullptr, nullptr});
   mainMenu.MenuItems.push_back(
-      {textureLoadIconId, "Load Rom", OnClickLoadRomGame, nullptr, nullptr});
+      {textureLoadRomIconId, "Load Rom", OnClickLoadRomGame, nullptr, nullptr});
   mainMenu.MenuItems.push_back(
-      {textureLoadIconId, "Settings", OnClickSettingsGame, nullptr, nullptr});
+      {textureSettingsId, "Settings", OnClickSettingsGame, nullptr, nullptr});
 
   std::string strPalette = "Palette: " + to_string(selectedPalette);
 
+  settingsMenu.MenuItems.push_back({textureMoveIconId, "Move Screen", OnClickMoveScreen, nullptr, nullptr});
+  settingsMenu.MenuItems.push_back({textureMappingIconId, "Button Mapping", OnClickMappingScreen, nullptr, nullptr});
   settingsMenu.MenuItems.push_back({0, strPalette, OnClickChangePaletteRight,
                                     OnClickChangePaletteLeft, OnClickChangePaletteRight});
   settingsMenu.MenuItems.push_back({0, strForceDMG[forceDMG ? 0 : 1], OnClickEmulatedModel,
@@ -1699,23 +1730,27 @@ void OvrApp::SetUpMenu() {
 
   settingsMenu.MenuItems.push_back(
       {0, strMove[followHead ? 0 : 1], OnClickFollowMode, OnClickFollowMode, OnClickFollowMode});
-  settingsMenu.MenuItems.push_back({0, "Move Screen", OnClickMoveScreen, nullptr, nullptr});
-  settingsMenu.MenuItems.push_back({0, "Back", OnClickBackAndSave, nullptr, nullptr});
+  settingsMenu.MenuItems.push_back({textureBackIconId, "Back", OnClickBackAndSave, nullptr, nullptr});
   settingsMenu.BackPress = OnBackPressedSettings;
+
+  buttonMapMenu.MenuItems.push_back({0, "", nullptr, OnClickChangeAButton, OnClickChangeAButton});
+  buttonMapMenu.MenuItems.push_back({0, "", nullptr, OnClickChangeBButton, OnClickChangeBButton});
+  buttonMapMenu.MenuItems.push_back({textureBackIconId, "Back", OnClickBackMove, nullptr, nullptr});
+  buttonMapMenu.BackPress = OnBackPressedMove;
 
   // move menu stuff
   moveMenu.MenuItems.push_back(
-      {0, "", nullptr, OnClickMoveScreenYawLeft, OnClickMoveScreenYawRight});
+      {texuterLeftRightIconId, "", nullptr, OnClickMoveScreenYawLeft, OnClickMoveScreenYawRight});
   moveMenu.MenuItems.push_back(
-      {0, "", nullptr, OnClickMoveScreenPitchLeft, OnClickMoveScreenPitchRight});
+      {textureUpDownIconId, "", nullptr, OnClickMoveScreenPitchLeft, OnClickMoveScreenPitchRight});
   moveMenu.MenuItems.push_back(
-      {0, "", nullptr, OnClickMoveScreenRollLeft, OnClickMoveScreenRollRight});
+      {textureResetIconId, "", nullptr, OnClickMoveScreenRollLeft, OnClickMoveScreenRollRight});
   moveMenu.MenuItems.push_back(
-      {0, "", nullptr, OnClickMoveScreenDistanceLeft, OnClickMoveScreenDistanceRight});
+      {textureDistanceIconId, "", nullptr, OnClickMoveScreenDistanceLeft, OnClickMoveScreenDistanceRight});
   moveMenu.MenuItems.push_back(
-      {0, "", nullptr, OnClickMoveScreenScaleLeft, OnClickMoveScreenScaleRight});
-  moveMenu.MenuItems.push_back({0, "Reset View", OnClickResetView, nullptr, nullptr});
-  moveMenu.MenuItems.push_back({0, "Back", OnClickBackMove, nullptr, nullptr});
+      {textureScaleIconId, "", nullptr, OnClickMoveScreenScaleLeft, OnClickMoveScreenScaleRight});
+  moveMenu.MenuItems.push_back({textureResetViewIconId, "Reset View", OnClickResetView, nullptr, nullptr});
+  moveMenu.MenuItems.push_back({textureBackIconId, "Back", OnClickBackMove, nullptr, nullptr});
   moveMenu.BackPress = OnBackPressedMove;
 
   // @HACK: updates the visible values

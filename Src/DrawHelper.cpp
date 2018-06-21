@@ -20,7 +20,12 @@
 
 using namespace OVR;
 
+namespace DrawHelper {
+
 GlProgram glTextureProgram;
+
+GLuint texture_vao;
+GLuint texture_vbo;
 
 static const char VERTEX_SHADER_TEXTURE[] =
     "#version 330 core\n"
@@ -51,10 +56,7 @@ static const char FRAGMENT_SHADER_TEXTURE[] =
     "	color = tex_sample * tex_sample.a * textColor;\n"
     "}\n";
 
-GLuint texture_vao;
-GLuint texture_vbo;
-
-void InitDrawHelper(GLfloat menuWidth, GLfloat menuHeight) {
+void Init(GLfloat menuWidth, GLfloat menuHeight) {
   glTextureProgram = GlProgram::Build(VERTEX_SHADER_TEXTURE, FRAGMENT_SHADER_TEXTURE, NULL, 0);
 
   glm::mat4 projection = glm::ortho(0.0f, menuWidth, 0.0f, menuHeight);
@@ -76,7 +78,6 @@ void InitDrawHelper(GLfloat menuWidth, GLfloat menuHeight) {
 
 void DrawTexture(GLuint textureId, GLfloat posX, GLfloat posY, GLfloat width, GLfloat height,
                  ovrVector4f color) {
-
   glActiveTexture(GL_TEXTURE0);
   glBindVertexArray(texture_vao);
 
@@ -100,3 +101,5 @@ void DrawTexture(GLuint textureId, GLfloat posX, GLfloat posY, GLfloat width, GL
   // Draw a triangle from the 3 vertices
   glDrawArrays(GL_TRIANGLES, 0, 6);
 }
+
+}  // namespace DrawHelper

@@ -17,12 +17,11 @@
 #include "glm/gtc/matrix_transform.hpp"
 #include "glm/gtc/type_ptr.hpp"
 
-#ifndef ANDROID_DRAWHELPER_H
-#define ANDROID_DRAWHELPER_H
+namespace DrawHelper {
 
-#endif  // ANDROID_DRAWHELPER_H
-
-void InitDrawHelper(GLfloat menuWidth, GLfloat menuHeight);
+void Init(GLfloat menuWidth, GLfloat menuHeight);
 
 void DrawTexture(GLuint textureId, GLfloat posX, GLfloat posY, GLfloat width, GLfloat height,
                  ovrVector4f color);
+
+}  // namespace DrawHelper

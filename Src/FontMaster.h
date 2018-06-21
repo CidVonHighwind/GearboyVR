@@ -29,4 +29,5 @@ void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat
                 Vector3f color);
 
 void Close();
+
 }  // namespace FontManager
