@@ -181,7 +181,7 @@ void Close() {
 }
 
 void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat scale,
-                Vector3f color) {
+                ovrVector4f color) {
   // Iterate through all characters
   std::string::const_iterator c;
   int index = 0;

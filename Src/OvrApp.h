@@ -10,6 +10,50 @@ namespace OVR {
 class ovrLocale;
 }
 
+class MenuItem {
+ public:
+  bool Selectable = false;
+  bool Selected = false;
+  int PosX = 100;
+  int PosY = 100;
+
+ public:
+  virtual ~MenuItem() {}
+  virtual void DrawText() {}
+  virtual void DrawTexture() {}
+};
+
+class MenuButton : public MenuItem {
+ public:
+  MenuButton(GLuint iconId, std::string text, int posX, int posY,
+             void (*pressFunction)(MenuButton *item), void (*leftFunction)(MenuButton *item),
+             void (*rightFunction)(MenuButton *item)) {
+    PosX = posX;
+    PosY = posY;
+    IconId = iconId;
+    Text = text;
+    PressFunction = pressFunction;
+    LeftFunction = leftFunction;
+    RightFunction = rightFunction;
+  }
+
+  virtual ~MenuButton() {}
+
+  GLuint IconId;
+
+  std::string Text;
+
+  void (*PressFunction)(MenuButton *item);
+
+  void (*LeftFunction)(MenuButton *item);
+
+  void (*RightFunction)(MenuButton *item);
+
+  virtual void DrawText() override;
+
+  virtual void DrawTexture() override;
+};
+
 class OvrApp : public OVR::VrAppInterface {
  public:
   OvrApp();
@@ -20,8 +64,7 @@ class OvrApp : public OVR::VrAppInterface {
 
   virtual void Configure(OVR::ovrSettings &settings);
 
-  virtual void EnteredVrMode(const OVR::ovrIntentType intentType,
-                             const char *intentFromPackage,
+  virtual void EnteredVrMode(const OVR::ovrIntentType intentType, const char *intentFromPackage,
                              const char *intentJSON, const char *intentURI);
 
   virtual void LeavingVrMode();

@@ -8,7 +8,7 @@ using namespace OVR;
 
 namespace LayerBuilder {
 
-#define FOLLOW_SPEED 0.03f
+#define FOLLOW_SPEED 0.05f
 
 float screenYaw = 0;
 float screenPitch = 0;
