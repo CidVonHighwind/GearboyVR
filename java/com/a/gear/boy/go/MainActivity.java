@@ -1,5 +1,7 @@
 package com.a.gear.boy.go;
 
+import android.content.IntentFilter;
+import android.os.BatteryManager;
 import android.os.Bundle;
 import android.os.Environment;
 import android.util.Log;
@@ -43,6 +45,15 @@ public class MainActivity extends VrActivity {
             folder.mkdirs();
             Log.d("MainActivity", "created /Roms/GB/States/ Directory");
         }
+    }
+
+    public int getInt(){
+        Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+
+        int level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, 0);
+        int scale = batteryIntent.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
+
+        return (int)((level / (float)scale) * 100);
     }
 
     public String getExternalFilesDir() {

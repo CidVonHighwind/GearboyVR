@@ -50,11 +50,11 @@ static const char FRAGMENT_SHADER[] =
     "out vec4 color;\n"
 
     "uniform sampler2D text;\n"
-    "uniform vec3 textColor;\n"
+    "uniform vec4 textColor;\n"
 
     "void main()\n"
     "{\n"
-    "	color = vec4(textColor, 1.0) * texture(text, TexCoords).a;\n"
+    "	color = textColor * texture(text, TexCoords).a;\n"
     "}\n";
 
 void Init(GLfloat menuWidth, GLfloat menuHeight) {
@@ -181,7 +181,7 @@ void Close() {
 }
 
 void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat scale,
-                ovrVector4f color) {
+                ovrVector4f color, float transparency) {
   // Iterate through all characters
   std::string::const_iterator c;
   int index = 0;
@@ -211,7 +211,8 @@ void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat
   }
 
   // Activate corresponding render state
-  glUniform3f(glGetUniformLocation(glProgram.Program, "textColor"), color.x, color.y, color.z);
+  glUniform4f(glGetUniformLocation(glProgram.Program, "textColor"), color.x * transparency,
+              color.y * transparency, color.z * transparency, color.w * transparency);
 
   // if (fontTexture == 0 || fontTexture != font.textureID) {
   fontTexture = font.textureID;

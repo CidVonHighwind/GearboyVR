@@ -2,7 +2,9 @@
 #include <OVR_Input.h>
 #include <VrApi_Input.h>
 #include <VrApi_Types.h>
+#include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -43,42 +45,17 @@
 #include <gli/texture2d.hpp>        // representation of a 2d texture
 #include <gli/texture2d_array.hpp>  // representation of a 2d array texture
 
-#include <VrApi/Include/VrApi_Types.h>
 #include <gearboy.h>
-#include <gli/format.hpp>
-#include "Audio/OpenSLWrap.h"
 
 #include "DrawHelper.h"
+#include "Emulator.h"
 #include "FontMaster.h"
 #include "LayerBuilder.h"
 
 using namespace OVR;
 
-struct Rom {
-  bool isGbc;
-  std::string RomName;
-  std::string FullPath;
-  std::string FullPathNorm;
-  std::string SavePath;
-};
-
-struct SaveState {
-  bool filled;
-  GB_Color *saveImage;
-};
-
-struct LoadedGame {
-  SaveState saveStates[10];
-};
-
-#define VIDEO_WIDTH 160
-#define VIDEO_HEIGHT 144
-
 #define menuWidth 640
 #define menuHeight 576
-
-// const int menuWidth = 570;
-// const int menuHeight = 500;
 
 #define HEADER_HEIGHT 75
 
@@ -98,20 +75,9 @@ struct LoadedGame {
 
 #define GL(func) func;
 
-const int SAVE_FILE_VERSION = 2;
+const int SAVE_FILE_VERSION = 3;
 
-GB_Color *gearboy_frame_buf;
-GearboyCore *core;
-
-static s16 audio_buf[AUDIO_BUFFER_SIZE * 2];
-static int audio_sample_count;
-static int audio_sample_skip_count;
-
-LoadedGame *currentGame;
-
-Rom *CurrentRom;
-
-std::vector<Rom> romFiles;
+std::vector<Emulator::Rom> romFiles;
 
 GlProgram glprog;
 
@@ -123,15 +89,12 @@ int listItemSize;
 int menuItemSize;
 int listStartY;
 
-bool audioInit = false;
 bool menuOpen = true;
 bool romSelection = true;
 bool loadedRom;
 
 // saved variables
-bool forceDMG = false;
 bool followHead;
-int selectedPalette = 20;
 int saveSlot;
 bool allowUpDownSlashLeftRight;  // probably not necessary
 bool showExitDialog = false;
@@ -151,17 +114,12 @@ std::string strMoveMenu = "<- Move Screen ->";
 int strMoveMenuTextWidth;
 int strNoSaveWidth;
 
-int button_mapping_a, button_mapping_b, button_mapping_menu;
-int button_mapping_a_index = 0;
-int button_mapping_b_index = 1;
+int button_mapping_menu;
 int button_mapping_menu_index = 3;
 std::string MapButtonStr[] = {"A", "B", "X", "Y"};
 int MapButtons[] = {BUTTON_A, BUTTON_B, BUTTON_X, BUTTON_Y};
 
 unsigned int lastButtonState;
-
-const int CylinderWidth = 160 * 2;
-const int CylinderHeight = 144 * 2;
 
 const char *appDir;
 const char *storageDir;
@@ -181,170 +139,36 @@ int buttonDownCount;
 FontManager::RenderFont fontHeader, fontMenu, fontList, fontSlot, fontSmall;
 
 int strVersionWidth;
+const ovrJava *java;
+
+jclass clsData;
+jmethodID getVal;
+
+int batteryLevel, batter_string_width;
+std::string time_string, battery_string;
 
 Vector4f MenuBackgroundColor{0.03f, 0.036f, 0.06f, 0.99f};
 Vector4f MenuBackgroundOverlayColor{0.0f, 0.0f, 0.0f, 0.25f};
 
-ovrTextureSwapChain *CylinderSwapChain;
+Vector4f BatteryColor{1.0f, 1.0f, 1.0f, 1.0f};
+Vector4f BatteryBackgroundColor{0.15f, 0.15f, 0.15f, 1.0f};
+
 ovrTextureSwapChain *MenuSwapChain;
 GLuint MenuFrameBuffer = 0;
 
-uint32_t *texData;
-
-GLuint textureIdScreen, textureIdMenu, textureIdSlotImage, textureHeaderIconId, textureGbIconId,
-    textureGbcIconId, textureSaveIconId, textureLoadIconId, textureWhiteId, texturePlayId,
-    textureResumeId, textureSettingsId, texuterLeftRightIconId, textureUpDownIconId,
-    textureResetIconId, textureSaveSlotIconId, textureLoadRomIconId, textureBackIconId,
-    textureMoveIconId, textureDistanceIconId, textureResetViewIconId, textureScaleIconId,
-    textureMappingIconId, texturePaletteIconId, textureButtonAIconId, textureButtonBIconId,
-    textureFollowHeadIconId, textureDMGIconId, textureExitIconId;
-
-const int paletteCount = 31;
-static GB_Color palettes[paletteCount][4] = {
-    {{0x03, 0x96, 0x87, 0xFF},
-     {0x03, 0x6B, 0x4D, 0xFF},
-     {0x03, 0x55, 0x2B, 0xFF},
-     {0x03, 0x44, 0x14, 0xFF}},
-    {{0xEF, 0xFA, 0xF5, 0xFF},
-     {0x70, 0xC2, 0x86, 0xFF},
-     {0x57, 0x69, 0x2F, 0xFF},
-     {0x20, 0x19, 0x0B, 0xFF}},
-    {{0xFF, 0xFF, 0xFF, 0xFF},
-     {0xAA, 0xAA, 0xAA, 0xFF},
-     {0x55, 0x55, 0x55, 0xFF},
-     {0x00, 0x00, 0x00, 0xFF}},
-    {{0xC8, 0xE8, 0xF8, 0xFF},
-     {0x48, 0x90, 0xD8, 0xFF},
-     {0x20, 0x34, 0xA8, 0xFF},
-     {0x50, 0x18, 0x30, 0xFF}},
-    {{0xAA, 0xE0, 0xE0, 0xFF},
-     {0x7C, 0xB8, 0xB0, 0xFF},
-     {0x5B, 0x82, 0x72, 0xFF},
-     {0x17, 0x34, 0x39, 0xFF}},
-    {{0xA5, 0xEB, 0xD4, 0xFF},
-     {0x7C, 0xB8, 0x62, 0xFF},
-     {0x5D, 0x76, 0x27, 0xFF},
-     {0x39, 0x39, 0x1D, 0xFF}},
-    {{0xCE, 0xF7, 0xF7, 0xFF},
-     {0xF7, 0x8E, 0x50, 0xFF},
-     {0x9E, 0x00, 0x00, 0xFF},
-     {0x1E, 0x00, 0x00, 0xFF}},
-    {{0xA9, 0x68, 0x68, 0xFF},
-     {0xED, 0xB4, 0xA1, 0xFF},
-     {0x76, 0x44, 0x62, 0xFF},
-     {0x2C, 0x21, 0x37, 0xFF}},
-    {{0xAE, 0xDF, 0x1E, 0xFF},
-     {0xB6, 0x25, 0x58, 0xFF},
-     {0x04, 0x7E, 0x60, 0xFF},
-     {0x2C, 0x17, 0x00, 0xFF}},
-    {{0x7E, 0x84, 0x16, 0xFF},
-     {0x57, 0x7B, 0x46, 0xFF},
-     {0x38, 0x5D, 0x49, 0xFF},
-     {0x2E, 0x46, 0x3D, 0xFF}},
-    {{0xAC, 0xB5, 0x6B, 0xFF},
-     {0x76, 0x84, 0x48, 0xFF},
-     {0x3F, 0x50, 0x3F, 0xFF},
-     {0x24, 0x31, 0x37, 0xFF}},
-    {{0xF7, 0xBE, 0xF7, 0xFF},
-     {0xE7, 0x86, 0x86, 0xFF},
-     {0x77, 0x33, 0xE7, 0xFF},
-     {0x2C, 0x2C, 0x96, 0xFF}},
-    {{0xF7, 0xE7, 0xC6, 0xFF},
-     {0xD6, 0x8E, 0x49, 0xFF},
-     {0xA6, 0x37, 0x25, 0xFF},
-     {0x33, 0x1E, 0x50, 0xFF}},
-    {{0xC4, 0xCF, 0xA1, 0xFF},
-     {0x8B, 0x95, 0x6D, 0xFF},
-     {0x4D, 0x53, 0x3C, 0xFF},
-     {0x1F, 0x1F, 0x1F, 0xFF}},
-    {{0xCE, 0xCE, 0xCE, 0xFF},
-     {0x6F, 0x9E, 0xDF, 0xFF},
-     {0x42, 0x67, 0x8E, 0xFF},
-     {0x10, 0x25, 0x33, 0xFF}},
-    {{0xFF, 0xE4, 0xC2, 0xFF},
-     {0xDC, 0xA4, 0x56, 0xFF},
-     {0xA9, 0x60, 0x4C, 0xFF},
-     {0x42, 0x29, 0x36, 0xFF}},
-    {{0x8B, 0xE5, 0xFF, 0xFF},
-     {0x60, 0x8F, 0xCF, 0xFF},
-     {0x75, 0x50, 0xE8, 0xFF},
-     {0x62, 0x2E, 0x4C, 0xFF}},
-    {{0xE0, 0xDB, 0xCD, 0xFF},
-     {0xA8, 0x9F, 0x94, 0xFF},
-     {0x70, 0x6B, 0x66, 0xFF},
-     {0x2B, 0x2B, 0x26, 0xFF}},
-    {{0xA1, 0xEF, 0x8C, 0xFF},
-     {0x3F, 0xAC, 0x95, 0xFF},
-     {0x44, 0x61, 0x76, 0xFF},
-     {0x2C, 0x21, 0x37, 0xFF}},
-    {{0xFF, 0xFF, 0xFF, 0xFF},
-     {0xB6, 0xB6, 0xB6, 0xFF},
-     {0x67, 0x67, 0x67, 0xFF},
-     {0x00, 0x00, 0x00, 0xFF}},
-    {{0xC4, 0xF0, 0xC2, 0xFF},
-     {0x5A, 0xB9, 0xA8, 0xFF},
-     {0x1E, 0x60, 0x6E, 0xFF},
-     {0x2D, 0x1B, 0x00, 0xFF}},
-    {{0xE3, 0xEE, 0xC0, 0xFF},
-     {0xAE, 0xBA, 0x89, 0xFF},
-     {0x5E, 0x67, 0x45, 0xFF},
-     {0x20, 0x20, 0x20, 0xFF}},
-    {{0xFF, 0xEF, 0xFF, 0xFF},
-     {0xF7, 0xB5, 0x8C, 0xFF},
-     {0x84, 0x73, 0x9C, 0xFF},
-     {0x18, 0x10, 0x10, 0xFF}},
-    {{0xE0, 0xF8, 0xD0, 0xFF},
-     {0x88, 0xC0, 0x70, 0xFF},
-     {0x34, 0x68, 0x56, 0xFF},
-     {0x08, 0x18, 0x20, 0xFF}},
-    {{0xFF, 0xF5, 0xDD, 0xFF},
-     {0xF4, 0xB2, 0x6B, 0xFF},
-     {0xB7, 0x65, 0x91, 0xFF},
-     {0x65, 0x29, 0x6C, 0xFF}},
-    {{0xEB, 0xDD, 0x77, 0xFF},
-     {0xA1, 0xBC, 0x00, 0xFF},
-     {0x0D, 0x88, 0x33, 0xFF},
-     {0x00, 0x43, 0x33, 0xFF}},
-    {{0xFF, 0xF6, 0xD3, 0xFF},
-     {0xF9, 0xA8, 0x75, 0xFF},
-     {0xEB, 0x6B, 0x6F, 0xFF},
-     {0x7C, 0x3F, 0x58, 0xFF}},
-    {{0xEF, 0xF7, 0xB6, 0xFF},
-     {0xDF, 0xA6, 0x77, 0xFF},
-     {0x11, 0xC6, 0x00, 0xFF},
-     {0x00, 0x00, 0x00, 0xFF}},
-    {{0xFF, 0xFF, 0xB5, 0xFF},
-     {0x7B, 0xC6, 0x7B, 0xFF},
-     {0x6B, 0x8C, 0x42, 0xFF},
-     {0x5A, 0x39, 0x21, 0xFF}},
-    {{0xE2, 0xF3, 0xE4, 0xFF},
-     {0x94, 0xE3, 0x44, 0xFF},
-     {0x46, 0x87, 0x8F, 0xFF},
-     {0x33, 0x2C, 0x50, 0xFF}},
-    {{0xDB, 0xF4, 0xB4, 0xFF},
-     {0xAB, 0xC3, 0x96, 0xFF},
-     {0x7B, 0x92, 0x78, 0xFF},
-     {0x4C, 0x62, 0x5A, 0xFF}},
-};
-
-static GB_Color *current_palette = palettes[selectedPalette];
+GLuint textureIdMenu, textureHeaderIconId, textureGbIconId, textureGbcIconId,
+    textureSaveIconId, textureLoadIconId, textureWhiteId, texturePlayId, textureResumeId,
+    textureSettingsId, texuterLeftRightIconId, textureUpDownIconId, textureResetIconId,
+    textureSaveSlotIconId, textureLoadRomIconId, textureBackIconId, textureMoveIconId,
+    textureDistanceIconId, textureResetViewIconId, textureScaleIconId, textureMappingIconId,
+    texturePaletteIconId, textureButtonAIconId, textureButtonBIconId, textureFollowHeadIconId,
+    textureDMGIconId, textureExitIconId;
 
 template <typename T>
 std::string to_string(T value) {
   std::ostringstream os;
   os << value;
   return os.str();
-}
-
-void MenuButton::DrawText() {
-  FontManager::RenderText(fontMenu, Text, PosX + 30 + (Selected ? 5 : 0), PosY, 1.0f,
-                          Selected ? textSelectionColor : textColor);
-}
-
-void MenuButton::DrawTexture() {
-  if (IconId > 0)
-    DrawHelper::DrawTexture(IconId, PosX + (Selected ? 5 : 0), PosY + 3, 26, 26,
-                            Selected ? textSelectionColor : textColor);
 }
 
 class Menu {
@@ -357,7 +181,10 @@ class Menu {
   void (*BackPress)();
 };
 
-Menu *currentMenu;
+bool isTransitioning;
+int transitionDir, transitionMoveDir = 1;
+float transitionState = 1;
+Menu *currentMenu, *nextMenu;
 Menu mainMenu, settingsMenu, moveMenu, buttonMapMenu;
 
 MenuButton *yawButton;
@@ -365,6 +192,21 @@ MenuButton *pitchButton;
 MenuButton *rollButton;
 MenuButton *scaleButton;
 MenuButton *distanceButton;
+
+void MenuButton::DrawText(float transparency) {
+  FontManager::RenderText(fontMenu, Text,
+                          PosX + 30 + (Selected ? 5 : 0) +
+                              transitionDir * transitionMoveDir * (1 - transitionState) * 20,
+                          PosY, 1.0f, Selected ? textSelectionColor : textColor, transparency);
+}
+
+void MenuButton::DrawTexture(float transparency) {
+  if (IconId > 0)
+    DrawHelper::DrawTexture(
+        IconId,
+        PosX + (Selected ? 5 : 0) + transitionDir * transitionMoveDir * (1 - transitionState) * 20,
+        PosY + 3, 26, 26, Selected ? textSelectionColor : textColor, transparency);
+}
 
 #if defined(OVR_OS_ANDROID)
 
@@ -410,23 +252,6 @@ OvrApp::OvrApp()
       GuiSys(OvrGuiSys::Create()),
       Locale(NULL),
       SceneModel(NULL) {
-  LOG("new gearboycore");
-  core = new GearboyCore();
-  LOG("init gearboy");
-
-  core->Init();
-
-  gearboy_frame_buf = new GB_Color[VIDEO_WIDTH * VIDEO_HEIGHT];
-
-  currentGame = new LoadedGame();
-
-  for (int i = 0; i < 10; ++i) {
-    currentGame->saveStates[i].saveImage =
-        (GB_Color *)malloc(VIDEO_WIDTH * VIDEO_HEIGHT * sizeof(uint32_t));
-    // new GB_Color[VIDEO_WIDTH * VIDEO_HEIGHT];
-  }
-
-  texData = (uint32_t *)malloc(CylinderWidth * CylinderHeight * sizeof(uint32_t));
 }
 
 OvrApp::~OvrApp() {
@@ -440,8 +265,6 @@ OvrApp::~OvrApp() {
   if (SceneModel != NULL) {
     delete SceneModel;
   }
-
-  SafeDelete(core);
 }
 
 /// Filename can be KTX or DDS files
@@ -502,13 +325,21 @@ GLuint Load_Texture(const void *Data, std::size_t Size) {
 
   return TextureName;
 }
-
+ovrSettings *OVR_Settings;
 void OvrApp::Configure(ovrSettings &settings) {
   settings.CpuLevel = 0;
   settings.GpuLevel = 0;
 
   settings.RenderMode = RENDERMODE_MULTIVIEW;
   settings.UseSrgbFramebuffer = true;
+
+  OVR_Settings = &settings;
+}
+
+int UpdateBatteryLevel() {
+  jint bLevel = java->Env->CallIntMethod(java->ActivityObject, getVal);
+  int returnValue = (int)bLevel;
+  return returnValue;
 }
 
 void SetUpScrollList() {
@@ -522,19 +353,6 @@ void SetUpScrollList() {
 }
 
 void CreateScreen() {
-  // emu screen layer
-  CylinderSwapChain = vrapi_CreateTextureSwapChain(VRAPI_TEXTURE_TYPE_2D, VRAPI_TEXTURE_FORMAT_8888,
-                                                   CylinderWidth, CylinderHeight, 1, false);
-
-  textureIdScreen = vrapi_GetTextureSwapChainHandle(CylinderSwapChain, 0);
-  glBindTexture(GL_TEXTURE_2D, textureIdScreen);
-  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, CylinderWidth, CylinderHeight, GL_RGBA, GL_UNSIGNED_BYTE,
-                  NULL);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  GLfloat borderColor[] = {0.0f, 0.0f, 0.0f, 0.0f};
-  glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
-
   // menu layer
   MenuSwapChain = vrapi_CreateTextureSwapChain(VRAPI_TEXTURE_TYPE_2D, VRAPI_TEXTURE_FORMAT_8888,
                                                menuWidth, menuHeight, 1, false);
@@ -575,45 +393,6 @@ void CreateScreen() {
   LOG("finished creating screens");
 }
 
-void UpdateScreen() {
-  for (int y = 0; y < CylinderHeight; y++) {
-    for (int x = 0; x < CylinderWidth; x++) {
-      // needs to change for other libretro cores
-      /* texData[y * CylinderWidth + x] =
-                      (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].red <<
-         0) | (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].green << 8) |
-                      (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].blue
-         << 16) | (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].alpha <<
-         24); */
-      memcpy(&texData[y * CylinderWidth + x], &gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)],
-             4);
-    }
-  }
-
-  glBindTexture(GL_TEXTURE_2D, textureIdScreen);
-  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, CylinderWidth, CylinderHeight, GL_RGBA, GL_UNSIGNED_BYTE,
-                  texData);
-
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  GLfloat borderColor[] = {0.0f, 0.0f, 0.0f, 0.0f};
-  glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
-
-  glBindTexture(GL_TEXTURE_2D, 0);
-}
-
-void CreateSlotImage() {
-  glGenTextures(1, &textureIdSlotImage);
-  glBindTexture(GL_TEXTURE_2D, textureIdSlotImage);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, VIDEO_WIDTH, VIDEO_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE,
-               NULL);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glBindTexture(GL_TEXTURE_2D, 0);
-}
-
 void CreateWhiteImage() {
   uint32_t white = 0xFFFFFFFF;
   glGenTextures(1, &textureWhiteId);
@@ -622,256 +401,59 @@ void CreateWhiteImage() {
   glBindTexture(GL_TEXTURE_2D, 0);
 }
 
-void UpdateSlotImage() {
-  glBindTexture(GL_TEXTURE_2D, textureIdSlotImage);
-  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VIDEO_WIDTH, VIDEO_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE,
-                  currentGame->saveStates[saveSlot].saveImage);
-  glBindTexture(GL_TEXTURE_2D, 0);
-}
-
-void SetPalette(GB_Color *newPalette) {
-  current_palette = newPalette;
-  core->SetDMGPalette(current_palette[0], current_palette[1], current_palette[2],
-                      current_palette[3]);
-
-  // only update if it is in gb mode
-  if (!core->IsCGB()) {
-    core->RenderDMGFrame(gearboy_frame_buf);
-    UpdateScreen();
-  }
-}
-
-void SaveRam() {
-  if (CurrentRom != nullptr && core->GetMemory()->GetCurrentRule()->GetRamSize() > 0) {
-    LOG("save ram %s", CurrentRom->SavePath.c_str());
-    std::ofstream outfile(CurrentRom->SavePath, std::ios::trunc | std::ios::binary);
-    outfile.write((const char *)core->GetMemory()->GetCurrentRule()->GetRamBanks(),
-                  core->GetMemory()->GetCurrentRule()->GetRamSize());
-    outfile.close();
-
-    LOG("finished writing ram file");
-  }
-}
-
-void LoadRam() {
-  std::ifstream file(CurrentRom->SavePath, std::ios::in | std::ios::binary | std::ios::ate);
-  if (file.is_open()) {
-    long romBufferSize = file.tellg();
-    u8 *memblock = new u8[romBufferSize];
-    file.seekg(0, std::ios::beg);
-    file.read((char *)memblock, romBufferSize);
-    file.close();
-    LOG("loaded ram %ld", romBufferSize);
-
-    LOG("ram size %u", (unsigned int)core->GetMemory()->GetCurrentRule()->GetRamSize());
-
-    if (romBufferSize != (unsigned int)core->GetMemory()->GetCurrentRule()->GetRamSize()) {
-      LOG("ERROR loaded ram size is wrong");
-    } else {
-      memcpy(core->GetMemory()->GetCurrentRule()->GetRamBanks(), memblock,
-             core->GetMemory()->GetCurrentRule()->GetRamSize());
-      LOG("finished loading ram");
-    }
-
-    delete[] memblock;
-  } else {
-    LOG("could not load ram file: %s", CurrentRom->SavePath.c_str());
-  }
-}
-
 void SaveSettings() {
-  std::ofstream outfile(saveFilePath, std::ios::trunc | std::ios::binary);
-  outfile.write(reinterpret_cast<const char *>(&SAVE_FILE_VERSION), sizeof(int));
+  std::ofstream saveFile(saveFilePath, std::ios::trunc | std::ios::binary);
+  saveFile.write(reinterpret_cast<const char *>(&SAVE_FILE_VERSION), sizeof(int));
 
-  outfile.write(reinterpret_cast<const char *>(&currentRomListSelection), sizeof(int));
-  outfile.write(reinterpret_cast<const char *>(&selectedPalette), sizeof(int));
-  outfile.write(reinterpret_cast<const char *>(&saveSlot), sizeof(int));
-  outfile.write(reinterpret_cast<const char *>(&forceDMG), sizeof(bool));
-  outfile.write(reinterpret_cast<const char *>(&LayerBuilder::screenPitch), sizeof(float));
-  outfile.write(reinterpret_cast<const char *>(&LayerBuilder::screenYaw), sizeof(float));
-  outfile.write(reinterpret_cast<const char *>(&LayerBuilder::screenRoll), sizeof(float));
-  outfile.write(reinterpret_cast<const char *>(&LayerBuilder::radiusMenuScreen), sizeof(float));
-  outfile.write(reinterpret_cast<const char *>(&LayerBuilder::screenSize), sizeof(float));
-  outfile.write(reinterpret_cast<const char *>(&followHead), sizeof(bool));
-  outfile.write(reinterpret_cast<const char *>(&button_mapping_a_index), sizeof(int));
-  outfile.write(reinterpret_cast<const char *>(&button_mapping_b_index), sizeof(int));
-  outfile.write(reinterpret_cast<const char *>(&button_mapping_menu_index), sizeof(int));
+  Emulator::SaveSettings(&saveFile);
+  saveFile.write(reinterpret_cast<const char *>(&currentRomListSelection), sizeof(int));
+  saveFile.write(reinterpret_cast<const char *>(&saveSlot), sizeof(int));
+  saveFile.write(reinterpret_cast<const char *>(&LayerBuilder::screenPitch), sizeof(float));
+  saveFile.write(reinterpret_cast<const char *>(&LayerBuilder::screenYaw), sizeof(float));
+  saveFile.write(reinterpret_cast<const char *>(&LayerBuilder::screenRoll), sizeof(float));
+  saveFile.write(reinterpret_cast<const char *>(&LayerBuilder::radiusMenuScreen), sizeof(float));
+  saveFile.write(reinterpret_cast<const char *>(&LayerBuilder::screenSize), sizeof(float));
+  saveFile.write(reinterpret_cast<const char *>(&followHead), sizeof(bool));
+  saveFile.write(reinterpret_cast<const char *>(&button_mapping_menu_index), sizeof(int));
 
-  outfile.close();
+  saveFile.close();
   LOG("Saved Settings");
 }
 
 void LoadSettings() {
-  std::ifstream file(saveFilePath, std::ios::in | std::ios::binary | std::ios::ate);
-  if (file.is_open()) {
-    file.seekg(0, std::ios::beg);
+  std::ifstream loadFile(saveFilePath, std::ios::in | std::ios::binary | std::ios::ate);
+  if (loadFile.is_open()) {
+    loadFile.seekg(0, std::ios::beg);
 
     int saveFileVersion = 0;
-    file.read((char *)&saveFileVersion, sizeof(int));
+    loadFile.read((char *)&saveFileVersion, sizeof(int));
 
     // only load if the save versions are compatible
     if (saveFileVersion == SAVE_FILE_VERSION) {
-      file.read((char *)&currentRomListSelection, sizeof(int));
-      file.read((char *)&selectedPalette, sizeof(int));
-      file.read((char *)&saveSlot, sizeof(int));
-      file.read((char *)&forceDMG, sizeof(bool));
-      file.read((char *)&LayerBuilder::screenPitch, sizeof(float));
-      file.read((char *)&LayerBuilder::screenYaw, sizeof(float));
-      file.read((char *)&LayerBuilder::screenRoll, sizeof(float));
-      file.read((char *)&LayerBuilder::radiusMenuScreen, sizeof(float));
-      file.read((char *)&LayerBuilder::screenSize, sizeof(float));
-      file.read((char *)&followHead, sizeof(bool));
-      file.read((char *)&button_mapping_a_index, sizeof(int));
-      file.read((char *)&button_mapping_b_index, sizeof(int));
-      file.read((char *)&button_mapping_menu_index, sizeof(int));
+      Emulator::LoadSettings(&loadFile);
+      loadFile.read((char *)&currentRomListSelection, sizeof(int));
+      loadFile.read((char *)&saveSlot, sizeof(int));
+      loadFile.read((char *)&LayerBuilder::screenPitch, sizeof(float));
+      loadFile.read((char *)&LayerBuilder::screenYaw, sizeof(float));
+      loadFile.read((char *)&LayerBuilder::screenRoll, sizeof(float));
+      loadFile.read((char *)&LayerBuilder::radiusMenuScreen, sizeof(float));
+      loadFile.read((char *)&LayerBuilder::screenSize, sizeof(float));
+      loadFile.read((char *)&followHead, sizeof(bool));
+      loadFile.read((char *)&button_mapping_menu_index, sizeof(int));
     }
 
     // TODO: reset all loaded settings
-    if (file.fail())
+    if (loadFile.fail())
       LOG("Failed Loading Settings");
     else
       LOG("Settings Loaded");
 
-    file.close();
-  }
-}
-
-void SaveStateImage(int slot) {
-  std::string savePath = stateFolderPath + CurrentRom->RomName + ".stateimg";
-  if (slot > 0) savePath += ('0' + slot);
-
-  LOG("save image of slot to %s", savePath.c_str());
-  std::ofstream outfile(savePath, std::ios::trunc | std::ios::binary);
-  outfile.write((const char *)currentGame->saveStates[slot].saveImage,
-                sizeof(GB_Color) * VIDEO_WIDTH * VIDEO_HEIGHT);
-  outfile.close();
-  LOG("finished writing save image to file");
-}
-
-bool LoadStateImage(int slot) {
-  std::string savePath = stateFolderPath + CurrentRom->RomName + ".stateimg";
-  if (slot > 0) savePath += ('0' + slot);
-
-  std::ifstream file(savePath, std::ios::in | std::ios::binary | std::ios::ate);
-  if (file.is_open()) {
-    u8 *memblock = new u8[sizeof(GB_Color) * VIDEO_WIDTH * VIDEO_HEIGHT];
-    file.seekg(0, std::ios::beg);
-    file.read((char *)memblock, sizeof(GB_Color) * VIDEO_WIDTH * VIDEO_HEIGHT);
-    file.close();
-
-    memcpy(currentGame->saveStates[slot].saveImage, memblock,
-           sizeof(GB_Color) * VIDEO_WIDTH * VIDEO_HEIGHT);
-
-    delete[] memblock;
-
-    LOG("loaded image file: %s", savePath.c_str());
-
-    return true;
+    loadFile.close();
   }
 
-  LOG("could not load image file: %s", savePath.c_str());
-  return false;
+  LOG("menu index %i", button_mapping_menu_index);
+  button_mapping_menu = MapButtons[button_mapping_menu_index];
 }
-
-void SaveState(int slot) {
-  std::string savePath = stateFolderPath + CurrentRom->RomName + ".state";
-  if (slot > 0) savePath += ('0' + slot);
-
-  // get the size of the savestate
-  size_t size = 0;
-  core->SaveState(NULL, size);
-
-  if (size > 0) {
-    u8 *memblock = new u8[size];
-
-    if (core->SaveState(memblock, size)) {
-      LOG("save slot to %s", savePath.c_str());
-      std::ofstream outfile(savePath, std::ios::trunc | std::ios::binary);
-      outfile.write((const char *)memblock, size);
-      outfile.close();
-      LOG("finished writing slot to file");
-    }
-  }
-
-  LOG("copy image");
-  memcpy(currentGame->saveStates[slot].saveImage, gearboy_frame_buf,
-         sizeof(GB_Color) * VIDEO_WIDTH * VIDEO_HEIGHT);
-  LOG("update image");
-  UpdateSlotImage();
-  // save image for the slot
-  SaveStateImage(slot);
-  currentGame->saveStates[slot].filled = true;
-}
-
-void LoadState(int slot) {
-  std::string savePath = stateFolderPath + CurrentRom->RomName + ".state";
-  if (slot > 0) savePath += ('0' + slot);
-
-  std::ifstream file(savePath, std::ios::in | std::ios::binary | std::ios::ate);
-  if (file.is_open()) {
-    long romBufferSize = file.tellg();
-    u8 *memblock = new u8[romBufferSize];
-    file.seekg(0, std::ios::beg);
-    file.read((char *)memblock, romBufferSize);
-    file.close();
-    LOG("loaded slot has size: %ld", romBufferSize);
-
-    core->LoadState(memblock, romBufferSize);
-
-    delete[] memblock;
-  } else {
-    LOG("could not load ram file: %s", CurrentRom->SavePath.c_str());
-  }
-}
-
-void LoadRom(std::string path) {
-  std::ifstream file(path, std::ios::in | std::ios::binary | std::ios::ate);
-  if (file.is_open()) {
-    long romBufferSize = file.tellg();
-    u8 *memblock = new u8[romBufferSize];
-    file.seekg(0, std::ios::beg);
-    file.read((char *)memblock, romBufferSize);
-    file.close();
-    LOG("loaded file %ld", romBufferSize);
-
-    LOG("try loading rom in core");
-    bool loadedCore = core->LoadROMFromBuffer(memblock, (int)romBufferSize, forceDMG);
-    LOG("loaded rom: %i", loadedCore);
-
-    delete[] memblock;
-  } else {
-    LOG("could not load rom file: %s", path.c_str());
-  }
-}
-
-void LoadGame(Rom *rom) {
-  LOG("save ram");
-  SaveRam();
-  LOG("load ram");
-
-  CurrentRom = rom;
-
-  LoadRom(rom->FullPath);
-
-  LOG("try loading ram");
-  LoadRam();
-  LOG("end loading ram");
-
-  for (int i = 0; i < 10; ++i) {
-    if (!LoadStateImage(i)) {
-      currentGame->saveStates[i].filled = false;
-
-      memset(currentGame->saveStates[i].saveImage, 0,
-             sizeof(GB_Color) * VIDEO_WIDTH * VIDEO_HEIGHT);
-    } else {
-      currentGame->saveStates[i].filled = true;
-    }
-  }
-
-  UpdateSlotImage();
-}
-
-bool SortByRomName(const Rom &first, const Rom &second) { return first.RomName < second.RomName; }
 
 void ScanDirectory() {
   DIR *dir;
@@ -902,7 +484,7 @@ void ScanDirectory() {
           size_t lastIndexSave = (fullPath).find_last_of(".");
           std::string listNameSave = fullPath.substr(0, lastIndexSave);
 
-          Rom newRom;
+          Emulator::Rom newRom;
           newRom.RomName = listName;
           newRom.FullPath = fullPath;
           newRom.FullPathNorm = listNameSave;
@@ -920,14 +502,13 @@ void ScanDirectory() {
       }
     }
     closedir(dir);
-
-    std::sort(romFiles.begin(), romFiles.end(), SortByRomName);
+    LOG("sort list");
+    std::sort(romFiles.begin(), romFiles.end(), Emulator::SortByRomName);
+    LOG("finished sorting list");
   } else {
     LOG("could not open folder");
   }
 }
-
-void InitAudio() { OpenSLWrap_Init(); }
 
 void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFromPackage,
                            const char *intentJSON, const char *intentURI) {
@@ -936,23 +517,6 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
   OVR_UNUSED(intentURI);
 
   if (intentType == INTENT_LAUNCH) {
-    // TODO move me to the launch of the app
-    InitAudio();
-
-    DrawHelper::Init(menuWidth, menuHeight);
-
-    LoadSettings();
-
-    button_mapping_a = MapButtons[button_mapping_a_index];
-    button_mapping_b = MapButtons[button_mapping_b_index];
-    button_mapping_menu = MapButtons[button_mapping_menu_index];
-
-    CreateSlotImage();
-    CreateWhiteImage();
-
-    LOG("set upt palette");
-    SetPalette(palettes[selectedPalette]);
-
     FontManager::Init(menuWidth, menuHeight);
     FontManager::LoadFont(&fontHeader, const_cast<char *>("/system/fonts/Roboto-Regular.ttf"), 55);
     FontManager::LoadFont(&fontMenu, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 24);
@@ -1018,21 +582,32 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
     if (app->GetFileSys().ReadFile("apk:///assets/exit_icon.dds", buffer))
       textureExitIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
 
+    CreateWhiteImage();
+
+    // TODO move me to the launch of the app
+    DrawHelper::Init(menuWidth, menuHeight);
+
+    LoadSettings();
+
+    Emulator::Init(stateFolderPath);
+
     ScanDirectory();
 
     SetUpScrollList();
 
     SetUpMenu();
 
-    LOG("Create Screen");
     CreateScreen();
 
-    const ovrJava *java = app->GetJava();
+    java = app->GetJava();
     SoundEffectContext = new ovrSoundEffectContext(*java->Env, java->ActivityObject);
     SoundEffectContext->Initialize(&app->GetFileSys());
     SoundEffectPlayer = new OvrGuiSys::ovrDummySoundEffectPlayer();
 
     Locale = ovrLocale::Create(*java->Env, java->ActivityObject, "default");
+
+    clsData = java->Env->GetObjectClass(java->ActivityObject);
+    getVal = java->Env->GetMethodID(clsData, "getInt", "()I");
 
     String fontName;
     GetLocale().GetString("@string/font_name", "efigs.fnt", fontName);
@@ -1059,135 +634,28 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
 
 void OvrApp::LeavingVrMode() {}
 
-bool OvrApp::OnKeyEvent(const int keyCode, const int repeatCount, const KeyEventType eventType) {
-  if (GuiSys->OnKeyEvent(keyCode, repeatCount, eventType)) {
-    return true;
-  }
+void GetTimeString(std::string &timeString) {
+  struct timespec res;
+  clock_gettime(CLOCK_REALTIME, &res);
+  time_t t = res.tv_sec;  // just in case types aren't the same
+  tm tmv;
+  localtime_r(&t, &tmv);  // populate tmv with local time info
 
-  return false;
+  timeString.clear();
+  if (tmv.tm_hour < 10) timeString.append("0");
+  timeString.append(to_string(tmv.tm_hour));
+  timeString.append(":");
+  if (tmv.tm_min < 10) timeString.append("0");
+  timeString.append(to_string(tmv.tm_min));
 }
 
-void UpdateCoreInput(const ovrFrameInput &vrFrame) {
-  if (vrFrame.Input.buttonState & BUTTON_LSTICK_UP || vrFrame.Input.buttonState & BUTTON_DPAD_UP)
-    core->KeyPressed(Up_Key);
-  else
-    core->KeyReleased(Up_Key);
+void GetBattryString(std::string &batteryString) {
+  batteryLevel = UpdateBatteryLevel();
+  batteryString.clear();
+  batteryString.append(to_string(batteryLevel));
+  batteryString.append("%");
 
-  if (vrFrame.Input.buttonState & BUTTON_LSTICK_DOWN ||
-      vrFrame.Input.buttonState & BUTTON_DPAD_DOWN)
-    core->KeyPressed(Down_Key);
-  else
-    core->KeyReleased(Down_Key);
-
-  if (vrFrame.Input.buttonState & BUTTON_LSTICK_LEFT ||
-      vrFrame.Input.buttonState & BUTTON_DPAD_LEFT)
-    core->KeyPressed(Left_Key);
-  else
-    core->KeyReleased(Left_Key);
-
-  if (vrFrame.Input.buttonState & BUTTON_LSTICK_RIGHT ||
-      vrFrame.Input.buttonState & BUTTON_DPAD_RIGHT)
-    core->KeyPressed(Right_Key);
-  else
-    core->KeyReleased(Right_Key);
-
-  if (vrFrame.Input.buttonState & button_mapping_a && !(lastButtonState & button_mapping_a))
-    core->KeyPressed(A_Key);
-  else if (!(vrFrame.Input.buttonState & button_mapping_a) && lastButtonState & button_mapping_a)
-    core->KeyReleased(A_Key);
-
-  if (vrFrame.Input.buttonState & button_mapping_b && !(lastButtonState & button_mapping_b))
-    core->KeyPressed(B_Key);
-  else if (!(vrFrame.Input.buttonState & button_mapping_b) && lastButtonState & button_mapping_b)
-    core->KeyReleased(B_Key);
-
-  if (vrFrame.Input.buttonState & BUTTON_START && !(lastButtonState & BUTTON_START))
-    core->KeyPressed(Start_Key);
-  else if (!(vrFrame.Input.buttonState & BUTTON_START) && lastButtonState & BUTTON_START)
-    core->KeyReleased(Start_Key);
-
-  if (vrFrame.Input.buttonState & BUTTON_SELECT && !(lastButtonState & BUTTON_SELECT))
-    core->KeyPressed(Select_Key);
-  else if (!(vrFrame.Input.buttonState & BUTTON_SELECT) && lastButtonState & BUTTON_SELECT)
-    core->KeyReleased(Select_Key);
-}
-
-void AudioFrame(s16 *audio, unsigned sampleCount) {
-  if (!audioInit) {
-    audioInit = true;
-    StartPlaying();
-  }
-
-  SetBuffer((unsigned short *)audio, sampleCount);
-}
-
-void MergeAudioBuffer() {
-  int newLength = audio_sample_skip_count / 2 + audio_sample_count / 2;
-  if (audio_sample_skip_count < audio_sample_count)
-    newLength = audio_sample_skip_count;
-  else
-    newLength = audio_sample_count;
-
-  LOG("audio size: %i, %i, %i", audio_sample_count, audio_sample_skip_count, newLength);
-
-  /*
-  for (int i = 0; i < audio_sample_count / 2; ++i) {
-      audio_buf[i * 2] = audio_buf[i *
-                                   4];// (s16) (((int)audio_buf[i * 4] +
-  (int)audio_buf[i * 4 + 2]) / 2); audio_buf[i * 2 + 1] = audio_buf[i * 4 +
-                                       1];//(s16) (((int)audio_buf[i * 4 + 1] +
-  (int)audio_buf[i * 4 + 3]) / 2);
-  }
-  for (int i = 0; i < audio_sample_skip_count / 2; ++i) {
-      audio_buf[audio_sample_count / 2 + i * 2] = audio_buf_skip[i *
-                                                                 4];// (s16)
-  (((int)audio_buf_skip[i * 4] + (int)audio_buf_skip[i * 4 + 2]) / 2);
-      audio_buf[audio_sample_count / 2 + i * 2 + 1] = audio_buf_skip[i * 4 +
-                                                                     1];//(s16)
-  (((int)audio_buf_skip[i * 4 + 1] + (int)audio_buf_skip[i * 4 + 3]) / 2);
-  }
-  */
-
-  int blockStart = 0;
-  int blockSize = 160;
-  for (int i = 0; i < newLength; ++i) {
-    blockStart = (i / blockSize) * (blockSize * 2) + i % blockSize;
-    audio_buf[i] = audio_buf[blockStart];
-  }
-
-  audio_sample_count = newLength;
-}
-
-void EmulatorFrame(const ovrFrameInput &vrFrame) {
-  UpdateCoreInput(vrFrame);
-
-  // update the emulator
-  core->RunToVBlank(gearboy_frame_buf, audio_buf, &audio_sample_count);
-
-  if (vrFrame.Input.buttonState & BUTTON_LEFT_TRIGGER) {
-    /*
-    // append the audio buffer
-    audio_buf_skip = &audio_buf[audio_sample_count];
-    core->RunToVBlank(gearboy_frame_buf, audio_buf_skip,
-    &audio_sample_skip_count); MergeAudioBuffer();
-    */
-    core->RunToVBlank(gearboy_frame_buf, audio_buf, &audio_sample_count);
-  }
-  if (vrFrame.Input.buttonState & BUTTON_RIGHT_TRIGGER) {
-    core->RunToVBlank(gearboy_frame_buf, audio_buf, &audio_sample_count);
-    core->RunToVBlank(gearboy_frame_buf, audio_buf, &audio_sample_count);
-  }
-
-  if (audio_sample_count > 0) {
-    // LOG("sample count: %i", audio_sample_count);
-    AudioFrame(audio_buf, (unsigned int)audio_sample_count);
-    // audio_batch_cb(audio_buf, audio_sample_count / 2);
-  }
-
-  audio_sample_count = 0;
-
-  // update draw texture
-  UpdateScreen();
+  batter_string_width = FontManager::GetWidth(fontSmall, batteryString);
 }
 
 bool ButtonPressed(const ovrFrameInput &vrFrame, int button) {
@@ -1195,154 +663,171 @@ bool ButtonPressed(const ovrFrameInput &vrFrame, int button) {
          (!(lastButtonState & button) || buttonDownCount > SCROLL_DELAY);
 }
 
-void UpdateGUI(const ovrFrameInput &vrFrame) {
-  if (!romSelection) {
-    if (currentMenu == &moveMenu) {
-      // update the position of the screen
-      // LayerBuilder::MoveScreen(vrFrame);
-    }
-
-    // could be done with a single &
-    if (vrFrame.Input.buttonState & BUTTON_LSTICK_UP ||
-        vrFrame.Input.buttonState & BUTTON_DPAD_UP ||
-        vrFrame.Input.buttonState & BUTTON_LSTICK_DOWN ||
-        vrFrame.Input.buttonState & BUTTON_DPAD_DOWN ||
-        vrFrame.Input.buttonState & BUTTON_LSTICK_LEFT ||
-        vrFrame.Input.buttonState & BUTTON_DPAD_LEFT ||
-        vrFrame.Input.buttonState & BUTTON_LSTICK_RIGHT ||
-        vrFrame.Input.buttonState & BUTTON_DPAD_RIGHT) {
-      buttonDownCount++;
-    } else {
-      buttonDownCount = 0;
-    }
-
-    if (ButtonPressed(vrFrame, BUTTON_LSTICK_UP) || ButtonPressed(vrFrame, BUTTON_DPAD_UP)) {
-      currentMenu->MenuItems[currentMenu->CurrentSelection]->Selected = false;
-      currentMenu->CurrentSelection--;
+void UpdateRomSelection(const ovrFrameInput &vrFrame) {
+  if (vrFrame.Input.buttonState & BUTTON_LSTICK_UP || vrFrame.Input.buttonState & BUTTON_DPAD_UP) {
+    if ((!(lastButtonState & BUTTON_LSTICK_UP) && !(lastButtonState & BUTTON_DPAD_UP)) ||
+        buttonDownCount > SCROLL_DELAY) {
+      currentRomListSelection--;
       buttonDownCount -= SCROLL_TIME;
     }
-
-    if (ButtonPressed(vrFrame, BUTTON_LSTICK_DOWN) || ButtonPressed(vrFrame, BUTTON_DPAD_DOWN)) {
-      currentMenu->MenuItems[currentMenu->CurrentSelection]->Selected = false;
-      currentMenu->CurrentSelection++;
+    // @TODO use time instead
+    buttonDownCount++;
+  } else if (vrFrame.Input.buttonState & BUTTON_LSTICK_DOWN ||
+             vrFrame.Input.buttonState & BUTTON_DPAD_DOWN) {
+    if ((!(lastButtonState & BUTTON_LSTICK_DOWN) && !(lastButtonState & BUTTON_DPAD_DOWN)) ||
+        buttonDownCount > SCROLL_DELAY) {
+      currentRomListSelection++;
       buttonDownCount -= SCROLL_TIME;
     }
-
-    if (currentMenu->CurrentSelection < 0)
-      currentMenu->CurrentSelection = (int)(currentMenu->MenuItems.size() - 1);
-    else if (currentMenu->CurrentSelection >= currentMenu->MenuItems.size())
-      currentMenu->CurrentSelection = 0;
-
-    currentMenu->MenuItems[currentMenu->CurrentSelection]->Selected = true;
-
-    MenuButton *button =
-        dynamic_cast<MenuButton *>(currentMenu->MenuItems[currentMenu->CurrentSelection]);
-
-    if (button != NULL) {
-      if (ButtonPressed(vrFrame, BUTTON_LSTICK_LEFT) || ButtonPressed(vrFrame, BUTTON_DPAD_LEFT)) {
-        if (button->LeftFunction != nullptr) button->LeftFunction(button);
-        buttonDownCount -= SCROLL_TIME_MOVE;
-      }
-
-      if (ButtonPressed(vrFrame, BUTTON_LSTICK_RIGHT) ||
-          ButtonPressed(vrFrame, BUTTON_DPAD_RIGHT)) {
-        if (button->RightFunction != nullptr) button->RightFunction(button);
-        buttonDownCount -= SCROLL_TIME_MOVE;
-      }
-
-      if (vrFrame.Input.buttonState & BUTTON_A && !(lastButtonState & BUTTON_A) &&
-          button->PressFunction != nullptr) {
-        button->PressFunction(button);
-      }
-    }
-
-    if (vrFrame.Input.buttonState & BUTTON_B && !(lastButtonState & BUTTON_B) &&
-        currentMenu->BackPress != nullptr) {
-      currentMenu->BackPress();
-    }
-
+    buttonDownCount++;
   } else {
-    if (vrFrame.Input.buttonState & BUTTON_LSTICK_UP ||
-        vrFrame.Input.buttonState & BUTTON_DPAD_UP) {
-      if ((!(lastButtonState & BUTTON_LSTICK_UP) && !(lastButtonState & BUTTON_DPAD_UP)) ||
-          buttonDownCount > SCROLL_DELAY) {
-        currentRomListSelection--;
-        buttonDownCount -= SCROLL_TIME;
+    buttonDownCount = 0;
+  }
+
+  if (currentRomListSelection < 0)
+    currentRomListSelection = (int)(romFiles.size() - 1);
+  else if (currentRomListSelection >= romFiles.size())
+    currentRomListSelection = 0;
+
+  // scroll the menu
+  if (currentRomListSelection - 2 < menuListState && menuListState > 0) {
+    menuListState--;
+  }
+  if (currentRomListSelection + 2 >= menuListState + maxListItems &&
+      menuListState + maxListItems < romFiles.size()) {
+    menuListState++;
+  }
+
+  // load the selected rom
+  if (romFiles.size() > 0 && vrFrame.Input.buttonState & BUTTON_A &&
+      !(lastButtonState & BUTTON_A)) {
+    SaveSettings();
+    saveSlot = 0;
+    Emulator::LoadGame(&romFiles[currentRomListSelection]);
+    menuOpen = false;
+    romSelection = false;
+    loadedRom = true;
+  }
+  // go back
+  if (vrFrame.Input.buttonState & BUTTON_B && !(lastButtonState & BUTTON_B) && loadedRom) {
+    romSelection = false;
+  }
+}
+
+void UpdateMenu(const ovrFrameInput &vrFrame) {
+  if (isTransitioning) {
+    transitionState += 0.25f * transitionDir;
+    if (transitionDir <= 0) {
+      if (transitionState < 0) {
+        transitionDir = 1;
+        transitionState = 0;
+        currentMenu = nextMenu;
       }
-      // @TODO use time instead
-      buttonDownCount++;
-    } else if (vrFrame.Input.buttonState & BUTTON_LSTICK_DOWN ||
-               vrFrame.Input.buttonState & BUTTON_DPAD_DOWN) {
-      if ((!(lastButtonState & BUTTON_LSTICK_DOWN) && !(lastButtonState & BUTTON_DPAD_DOWN)) ||
-          buttonDownCount > SCROLL_DELAY) {
-        currentRomListSelection++;
-        buttonDownCount -= SCROLL_TIME;
-      }
-      buttonDownCount++;
     } else {
-      buttonDownCount = 0;
-    }
-
-    if (currentRomListSelection < 0)
-      currentRomListSelection = (int)(romFiles.size() - 1);
-    else if (currentRomListSelection >= romFiles.size())
-      currentRomListSelection = 0;
-
-    // scroll the menu
-    if (currentRomListSelection - 2 < menuListState && menuListState > 0) {
-      menuListState--;
-    }
-    if (currentRomListSelection + 2 >= menuListState + maxListItems &&
-        menuListState + maxListItems < romFiles.size()) {
-      menuListState++;
-    }
-
-    // load the selected rom
-    if (romFiles.size() > 0 && vrFrame.Input.buttonState & BUTTON_A &&
-        !(lastButtonState & BUTTON_A)) {
-      SaveSettings();
-      LoadGame(&romFiles[currentRomListSelection]);
-      menuOpen = false;
-      romSelection = false;
-      loadedRom = true;
-    }
-    // go back
-    if (vrFrame.Input.buttonState & BUTTON_B && !(lastButtonState & BUTTON_B) && loadedRom) {
-      romSelection = false;
+      if (transitionState >= 1) {
+        transitionState = 1;
+        isTransitioning = false;
+      }
     }
   }
+
+  // could be done with a single &
+  if (vrFrame.Input.buttonState & BUTTON_LSTICK_UP || vrFrame.Input.buttonState & BUTTON_DPAD_UP ||
+      vrFrame.Input.buttonState & BUTTON_LSTICK_DOWN ||
+      vrFrame.Input.buttonState & BUTTON_DPAD_DOWN ||
+      vrFrame.Input.buttonState & BUTTON_LSTICK_LEFT ||
+      vrFrame.Input.buttonState & BUTTON_DPAD_LEFT ||
+      vrFrame.Input.buttonState & BUTTON_LSTICK_RIGHT ||
+      vrFrame.Input.buttonState & BUTTON_DPAD_RIGHT) {
+    buttonDownCount++;
+  } else {
+    buttonDownCount = 0;
+  }
+
+  if (ButtonPressed(vrFrame, BUTTON_LSTICK_UP) || ButtonPressed(vrFrame, BUTTON_DPAD_UP)) {
+    currentMenu->MenuItems[currentMenu->CurrentSelection]->Selected = false;
+    currentMenu->CurrentSelection--;
+    buttonDownCount -= SCROLL_TIME;
+  }
+
+  if (ButtonPressed(vrFrame, BUTTON_LSTICK_DOWN) || ButtonPressed(vrFrame, BUTTON_DPAD_DOWN)) {
+    currentMenu->MenuItems[currentMenu->CurrentSelection]->Selected = false;
+    currentMenu->CurrentSelection++;
+    buttonDownCount -= SCROLL_TIME;
+  }
+
+  if (currentMenu->CurrentSelection < 0)
+    currentMenu->CurrentSelection = (int)(currentMenu->MenuItems.size() - 1);
+  else if (currentMenu->CurrentSelection >= currentMenu->MenuItems.size())
+    currentMenu->CurrentSelection = 0;
+
+  currentMenu->MenuItems[currentMenu->CurrentSelection]->Selected = true;
+
+  MenuButton *button =
+      dynamic_cast<MenuButton *>(currentMenu->MenuItems[currentMenu->CurrentSelection]);
+
+  if (button != NULL) {
+    if (ButtonPressed(vrFrame, BUTTON_LSTICK_LEFT) || ButtonPressed(vrFrame, BUTTON_DPAD_LEFT)) {
+      if (button->LeftFunction != nullptr) button->LeftFunction(button);
+      buttonDownCount -= SCROLL_TIME_MOVE;
+    }
+
+    if (ButtonPressed(vrFrame, BUTTON_LSTICK_RIGHT) || ButtonPressed(vrFrame, BUTTON_DPAD_RIGHT)) {
+      if (button->RightFunction != nullptr) button->RightFunction(button);
+      buttonDownCount -= SCROLL_TIME_MOVE;
+    }
+
+    if (vrFrame.Input.buttonState & BUTTON_A && !(lastButtonState & BUTTON_A) &&
+        button->PressFunction != nullptr) {
+      button->PressFunction(button);
+    }
+  }
+
+  if (vrFrame.Input.buttonState & BUTTON_B && !(lastButtonState & BUTTON_B) &&
+      currentMenu->BackPress != nullptr) {
+    currentMenu->BackPress();
+  }
+}
+
+void UpdateGUI(const ovrFrameInput &vrFrame) {
+  if (romSelection)
+    UpdateRomSelection(vrFrame);
+  else
+    UpdateMenu(vrFrame);
 }
 
 void DrawMenu() {
   LOG("Draw Menu");
   // draw menu strings
   FontManager::Begin();
-  for (uint i = 0; i < currentMenu->MenuItems.size(); i++) currentMenu->MenuItems[i]->DrawText();
+  for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
+    currentMenu->MenuItems[i]->DrawText(transitionState);
 
   FontManager::Close();
 
   // draw the menu textures
-  for (uint i = 0; i < currentMenu->MenuItems.size(); i++) currentMenu->MenuItems[i]->DrawTexture();
+  for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
+    currentMenu->MenuItems[i]->DrawTexture(transitionState);
 
   // state screenshot background
   if (currentMenu == &mainMenu || currentMenu == &settingsMenu)
     DrawHelper::DrawTexture(textureWhiteId, menuWidth - 320 - 20 - 5, HEADER_HEIGHT + 20 - 5,
-                            320 + 10, 288 + 10, MenuBackgroundOverlayColor);
+                            320 + 10, 288 + 10, MenuBackgroundOverlayColor, 1);
   // save slot image
   if (currentMenu == &mainMenu) {
-    if (currentGame->saveStates[saveSlot].filled) {
-      DrawHelper::DrawTexture(textureIdSlotImage, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 160 * 2,
-                              144 * 2, {1.0f, 1.0f, 1.0f, 1.0f});
+    if (Emulator::currentGame->saveStates[saveSlot].filled) {
+      DrawHelper::DrawTexture(Emulator::stateImageId, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 160 * 2,
+                              144 * 2, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
     } else {
       // menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288
       FontManager::Begin();
       FontManager::RenderText(fontSlot, strNoSave, menuWidth - 160 - 20 - strNoSaveWidth / 2,
-                              HEADER_HEIGHT + 20 + 144 - 26, 1.0f, {0.95f, 0.95f, 0.95f, 1.0f});
+                              HEADER_HEIGHT + 20 + 144 - 26, 1.0f, {0.95f, 0.95f, 0.95f, 1.0f}, 1);
       FontManager::Close();
     }
   } else if (currentMenu == &settingsMenu) {
-    DrawHelper::DrawTexture(textureIdScreen, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 144 * 2,
-                            {1.0f, 1.0f, 1.0f, 1.0f});
+    DrawHelper::DrawTexture(Emulator::textureID, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320,
+                            144 * 2, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
   }
 }
 
@@ -1362,10 +847,10 @@ void DrawRomList() {
 
   // slider background
   DrawHelper::DrawTexture(textureWhiteId, listPosX, listPosY, scrollbarWidth, scrollbarHeight,
-                          MenuBackgroundOverlayColor);
+                          MenuBackgroundOverlayColor, 1);
   // slider
   DrawHelper::DrawTexture(textureWhiteId, listPosX, listPosY + recPosY, scrollbarWidth, recHeight,
-                          sliderColor);
+                          sliderColor, 1);
 
   // draw the cartridge icons
   for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
@@ -1373,7 +858,7 @@ void DrawRomList() {
       DrawHelper::DrawTexture(
           romFiles[i].isGbc ? textureGbcIconId : textureGbIconId,
           listPosX + scrollbarWidth + 15 + (((uint)currentRomListSelection == i) ? 5 : 0),
-          listStartY + listItemSize * (i - menuListState), 21, 24, {1.0f, 1.0f, 1.0f, 1.0f});
+          listStartY + listItemSize * (i - menuListState), 21, 24, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
     }
   }
 
@@ -1385,7 +870,7 @@ void DrawRomList() {
           fontList, romFiles[i].RomName,
           listPosX + scrollbarWidth + 44 + (((uint)currentRomListSelection == i) ? 5 : 0),
           listStartY + listItemSize * (i - menuListState), 1.0f,
-          ((uint)currentRomListSelection == i) ? textSelectionColor : textColor);
+          ((uint)currentRomListSelection == i) ? textSelectionColor : textColor, 1);
     } else
       break;
   }
@@ -1411,15 +896,35 @@ void DrawGUI() {
 
   // header
   DrawHelper::DrawTexture(textureWhiteId, 0, 0, menuWidth, HEADER_HEIGHT,
-                          MenuBackgroundOverlayColor);
+                          MenuBackgroundOverlayColor, 1);
   // icon
-  DrawHelper::DrawTexture(textureHeaderIconId, 0, 0, 75, 75, headerColor);
+  DrawHelper::DrawTexture(textureHeaderIconId, 0, 0, 75, 75, headerColor, 1);
 
   FontManager::Begin();
-  FontManager::RenderText(fontHeader, strHeader, 75, 0.0f, 1.0f, headerColor);
+  FontManager::RenderText(fontHeader, strHeader, 75, 0.0f, 1.0f, headerColor, 1);
+
+  // update the battery string
+  GetBattryString(battery_string);
+  FontManager::RenderText(fontSmall, battery_string,
+                          menuWidth - strVersionWidth - 110.0f - batter_string_width,
+                          HEADER_HEIGHT - 21, 1.0f, textColorVersion, 1);
+
+  // update the time string
+  GetTimeString(time_string);
+  FontManager::RenderText(fontSmall, time_string, menuWidth - strVersionWidth - 70.0f,
+                          HEADER_HEIGHT - 21, 1.0f, textColorVersion, 1);
+
   FontManager::RenderText(fontSmall, STR_VERSION, menuWidth - strVersionWidth - 7.0f,
-                          HEADER_HEIGHT - 21, 1.0f, textColorVersion);
+                          HEADER_HEIGHT - 21, 1.0f, textColorVersion, 1);
   FontManager::Close();
+
+  // draw battery
+  int maxHeight = 15;
+  DrawHelper::DrawTexture(textureWhiteId, menuWidth - strVersionWidth - 106.0f,
+                          HEADER_HEIGHT - maxHeight - 4, 8, maxHeight, BatteryBackgroundColor, 1);
+  int height = (int)(batteryLevel / 100.0 * maxHeight);
+  DrawHelper::DrawTexture(textureWhiteId, menuWidth - strVersionWidth - 106.0f,
+                          HEADER_HEIGHT - height - 4, 8, height, BatteryColor, 1);
 
   if (romSelection)
     DrawRomList();
@@ -1444,7 +949,7 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
     if (transitionPercentage > 0) transitionPercentage -= 0.25f;
     if (transitionPercentage < 0) transitionPercentage = 0;
 
-    EmulatorFrame(vrFrame);
+    Emulator::Update(vrFrame, lastButtonState);
   } else {
     if (transitionPercentage < 1) transitionPercentage += 0.25f;
     if (transitionPercentage > 1) transitionPercentage = 1;
@@ -1515,8 +1020,9 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
   LayerBuilder::UpdateDirection(vrFrame);
 
   // virtual screen layer
-  res.Layers[res.LayerCount].Cylinder = LayerBuilder::BuildCylinderLayer(
-      CylinderSwapChain, CylinderWidth, CylinderHeight, &vrFrame.Tracking, followHead);
+  res.Layers[res.LayerCount].Cylinder =
+      LayerBuilder::BuildCylinderLayer(Emulator::CylinderSwapChain, Emulator::CylinderWidth,
+                                       Emulator::CylinderHeight, &vrFrame.Tracking, followHead);
 
   res.Layers[res.LayerCount].Cylinder.Header.Flags |=
       VRAPI_FRAME_LAYER_FLAG_CHROMATIC_ABERRATION_CORRECTION;
@@ -1546,6 +1052,14 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
   return res;
 }
 
+void StartTransition(Menu *next, int dir) {
+  if (isTransitioning) return;
+  isTransitioning = true;
+  transitionDir = -1;
+  transitionMoveDir = dir;
+  nextMenu = next;
+}
+
 void OnClickResumGame(MenuButton *item) {
   LOG("Pressed RESUME GAME");
   menuOpen = false;
@@ -1553,48 +1067,47 @@ void OnClickResumGame(MenuButton *item) {
 
 void OnClickResetGame(MenuButton *item) {
   LOG("RESET GAME");
-  core->ResetROMPreservingRAM(forceDMG);
+  Emulator::ResetGame();
   menuOpen = false;
 }
 
 void OnClickSaveGame(MenuButton *item) {
   LOG("on click save game");
-  SaveState(saveSlot);
+  Emulator::SaveState(saveSlot);
   menuOpen = false;
 }
 
 void OnClickLoadGame(MenuButton *item) {
-  LoadState(saveSlot);
+  Emulator::LoadState(saveSlot);
   menuOpen = false;
 }
 
 void OnClickLoadRomGame(MenuButton *item) { romSelection = true; }
 
-void OnClickSettingsGame(MenuButton *item) { currentMenu = &settingsMenu; }
+void OnClickSettingsGame(MenuButton *item) { StartTransition(&settingsMenu, 1); }
+
+void ChangePalette(MenuButton *item, int dir) {
+  Emulator::ChangePalette(dir);
+  item->Text = "Palette: " + to_string(Emulator::selectedPalette);
+}
 
 void OnClickChangePaletteLeft(MenuButton *item) {
-  selectedPalette--;
-  if (selectedPalette < 0) {
-    selectedPalette = paletteCount - 1;
-  }
-  SetPalette(palettes[selectedPalette]);
-  item->Text = "Palette: " + to_string(selectedPalette);
+  ChangePalette(item, -1);
   SaveSettings();
 }
 
 void OnClickChangePaletteRight(MenuButton *item) {
-  selectedPalette++;
-  if (selectedPalette >= paletteCount) {
-    selectedPalette = 0;
-  }
-  SetPalette(palettes[selectedPalette]);
-  item->Text = "Palette: " + to_string(selectedPalette);
+  ChangePalette(item, 1);
   SaveSettings();
 }
 
+void SetForceDMG(MenuButton *item, bool newForceDMG) {
+  Emulator::forceDMG = newForceDMG;
+  item->Text = strForceDMG[Emulator::forceDMG ? 0 : 1];
+}
+
 void OnClickEmulatedModel(MenuButton *item) {
-  forceDMG = !forceDMG;
-  item->Text = strForceDMG[forceDMG ? 0 : 1];
+  SetForceDMG(item, !Emulator::forceDMG);
   SaveSettings();
 }
 
@@ -1604,9 +1117,9 @@ void OnClickFollowMode(MenuButton *item) {
   SaveSettings();
 }
 
-void OnClickMoveScreen(MenuButton *item) { currentMenu = &moveMenu; }
+void OnClickMoveScreen(MenuButton *item) { StartTransition(&moveMenu, 1); }
 
-void OnClickMappingScreen(MenuButton *item) { currentMenu = &buttonMapMenu; }
+void OnClickMappingScreen(MenuButton *item) { StartTransition(&buttonMapMenu, 1); }
 
 void OnClickAllowLeftRight(MenuButton *item) {
   allowUpDownSlashLeftRight = !allowUpDownSlashLeftRight;
@@ -1615,22 +1128,22 @@ void OnClickAllowLeftRight(MenuButton *item) {
 }
 
 void OnClickBackAndSave(MenuButton *item) {
-  currentMenu = &mainMenu;
+  StartTransition(&mainMenu, -1);
   SaveSettings();
 }
 
 void OnBackPressedSettings() {
-  currentMenu = &mainMenu;
+  StartTransition(&mainMenu, -1);
   SaveSettings();
 }
 
 void OnClickBackMove(MenuButton *item) {
-  currentMenu = &settingsMenu;
+  StartTransition(&settingsMenu, -1);
   SaveSettings();
 }
 
 void OnBackPressedMove() {
-  currentMenu = &settingsMenu;
+  StartTransition(&settingsMenu, -1);
   SaveSettings();
 }
 
@@ -1638,7 +1151,7 @@ void OnClickSaveSlotLeft(MenuButton *item) {
   saveSlot--;
   if (saveSlot < 0) saveSlot = MAX_SAVESLOTS - 1;
   item->Text = "Save Slot: " + to_string(saveSlot);
-  UpdateSlotImage();
+  Emulator::UpdateStateImage(saveSlot);
   SaveSettings();
 }
 
@@ -1646,7 +1159,7 @@ void OnClickSaveSlotRight(MenuButton *item) {
   saveSlot++;
   if (saveSlot >= MAX_SAVESLOTS) saveSlot = 0;
   item->Text = "Save Slot: " + to_string(saveSlot);
-  UpdateSlotImage();
+  Emulator::UpdateStateImage(saveSlot);
   SaveSettings();
 }
 
@@ -1699,25 +1212,13 @@ void OnClickResetView(MenuButton *item) {
 }
 
 void MoveAButtonMapping(MenuButton *item, int dir) {
-  // button_mapping_a = ((button_mapping_a << 1) | ((button_mapping_a & 0x8) >> 3)) & 0xF;
-
-  button_mapping_a_index += dir;
-
-  if (button_mapping_a_index < 0) button_mapping_a_index = 3;
-  if (button_mapping_a_index > 3) button_mapping_a_index = 0;
-
-  button_mapping_a = MapButtons[button_mapping_a_index];
-  item->Text = "mapped to: " + MapButtonStr[button_mapping_a_index];
+  Emulator::ChangeButtonMapping(0, dir);
+  item->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[0]];
 }
 
 void MoveBButtonMapping(MenuButton *item, int dir) {
-  button_mapping_b_index += dir;
-
-  if (button_mapping_b_index < 0) button_mapping_b_index = 3;
-  if (button_mapping_b_index > 3) button_mapping_b_index = 0;
-
-  button_mapping_b = MapButtons[button_mapping_b_index];
-  item->Text = "mapped to: " + MapButtonStr[button_mapping_b_index];
+  Emulator::ChangeButtonMapping(1, dir);
+  item->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[1]];
 }
 
 void MoveMenuButtonMapping(MenuButton *item, int dir) {
@@ -1758,7 +1259,7 @@ void OnClickMoveScreenScaleLeft(MenuButton *item) { ChangeScale(item, MoveSpeed)
 void OnClickMoveScreenScaleRight(MenuButton *item) { ChangeScale(item, -MoveSpeed); }
 
 void OnClickExit(MenuButton *item) {
-  SaveRam();
+  Emulator::SaveRam();
   showExitDialog = true;
 }
 
@@ -1790,7 +1291,6 @@ void OvrApp::SetUpMenu() {
 
   // settings page
   posY = HEADER_HEIGHT + 20;
-  std::string strPalette = "Palette: " + to_string(selectedPalette);
 
   settingsMenu.MenuItems.push_back(new MenuButton(textureMappingIconId, "Button Mapping", posX,
                                                   posY, OnClickMappingScreen, nullptr, nullptr));
@@ -1800,16 +1300,23 @@ void OvrApp::SetUpMenu() {
   settingsMenu.MenuItems.push_back(new MenuButton(
       textureFollowHeadIconId, strMove[followHead ? 0 : 1], posX, posY += menuItemSize + 5,
       OnClickFollowMode, OnClickFollowMode, OnClickFollowMode));
-  settingsMenu.MenuItems.push_back(new MenuButton(
-      texturePaletteIconId, strPalette, posX, posY += menuItemSize, OnClickChangePaletteRight,
-      OnClickChangePaletteLeft, OnClickChangePaletteRight));
-  settingsMenu.MenuItems.push_back(new MenuButton(textureDMGIconId, strForceDMG[forceDMG ? 0 : 1],
-                                                  posX, posY += menuItemSize, OnClickEmulatedModel,
-                                                  OnClickEmulatedModel, OnClickEmulatedModel));
+
+  MenuButton *paletteButton = new MenuButton(texturePaletteIconId, "", posX, posY += menuItemSize,
+                                             OnClickChangePaletteRight, OnClickChangePaletteLeft,
+                                             OnClickChangePaletteRight);
+  MenuButton *dmgButton =
+      new MenuButton(textureDMGIconId, "", posX, posY += menuItemSize, OnClickEmulatedModel,
+                     OnClickEmulatedModel, OnClickEmulatedModel);
+
+  settingsMenu.MenuItems.push_back(paletteButton);
+  settingsMenu.MenuItems.push_back(dmgButton);
   settingsMenu.MenuItems.push_back(new MenuButton(textureBackIconId, "Back", posX,
                                                   posY += menuItemSize + 5, OnClickBackAndSave,
                                                   nullptr, nullptr));
   settingsMenu.BackPress = OnBackPressedSettings;
+  // set text
+  ChangePalette(paletteButton, 0);
+  SetForceDMG(dmgButton, Emulator::forceDMG);
 
   // button mapping page
   posY = HEADER_HEIGHT + 20;

@@ -22,6 +22,6 @@ namespace DrawHelper {
 void Init(GLfloat menuWidth, GLfloat menuHeight);
 
 void DrawTexture(GLuint textureId, GLfloat posX, GLfloat posY, GLfloat width, GLfloat height,
-                 ovrVector4f color);
+                 ovrVector4f color, float transparency);
 
 }  // namespace DrawHelper

@@ -77,7 +77,7 @@ void Init(GLfloat menuWidth, GLfloat menuHeight) {
 }
 
 void DrawTexture(GLuint textureId, GLfloat posX, GLfloat posY, GLfloat width, GLfloat height,
-                 ovrVector4f color) {
+                 ovrVector4f color, float transparency) {
   glActiveTexture(GL_TEXTURE0);
   glBindVertexArray(texture_vao);
 
@@ -95,8 +95,8 @@ void DrawTexture(GLuint textureId, GLfloat posX, GLfloat posY, GLfloat width, GL
   glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(charVertices), charVertices);
   glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-  glUniform4f(glGetUniformLocation(glTextureProgram.Program, "textColor"), color.x, color.y,
-              color.z, color.w);
+  glUniform4f(glGetUniformLocation(glTextureProgram.Program, "textColor"), color.x * transparency,
+              color.y * transparency, color.z * transparency, color.w * transparency);
 
   // Draw a triangle from the 3 vertices
   glDrawArrays(GL_TRIANGLES, 0, 6);

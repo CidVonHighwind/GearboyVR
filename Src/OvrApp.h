@@ -19,8 +19,8 @@ class MenuItem {
 
  public:
   virtual ~MenuItem() {}
-  virtual void DrawText() {}
-  virtual void DrawTexture() {}
+  virtual void DrawText(float transparency) {}
+  virtual void DrawTexture(float transparency) {}
 };
 
 class MenuButton : public MenuItem {
@@ -49,9 +49,9 @@ class MenuButton : public MenuItem {
 
   void (*RightFunction)(MenuButton *item);
 
-  virtual void DrawText() override;
+  virtual void DrawText(float transparency) override;
 
-  virtual void DrawTexture() override;
+  virtual void DrawTexture(float transparency) override;
 };
 
 class OvrApp : public OVR::VrAppInterface {
@@ -68,9 +68,6 @@ class OvrApp : public OVR::VrAppInterface {
                              const char *intentJSON, const char *intentURI);
 
   virtual void LeavingVrMode();
-
-  virtual bool OnKeyEvent(const int keyCode, const int repeatCount,
-                          const OVR::KeyEventType eventType);
 
   virtual OVR::ovrFrameResult Frame(const OVR::ovrFrameInput &vrFrame);
 

@@ -26,7 +26,7 @@ void LoadFont(RenderFont *font, char *filePath, uint fontSize);
 void Begin();
 
 void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat scale,
-                ovrVector4f color);
+                ovrVector4f color, float transparency);
 
 void Close();
 
