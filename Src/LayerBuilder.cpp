@@ -1,8 +1,4 @@
 #include "LayerBuilder.h"
-#include <VrApi_Helpers.h>
-#include <VrApi_Types.h>
-#include "OVR_Input.h"
-#include <glm/gtc/quaternion.hpp>
 
 using namespace OVR;
 

@@ -12,7 +12,7 @@
 #include <algorithm>
 #include "GuiSys.h"
 #include "OVR_Locale.h"
-#include "OvrApp.h"
+#include "App.h"
 
 #include "glm/glm.hpp"
 #include "glm/gtc/matrix_transform.hpp"

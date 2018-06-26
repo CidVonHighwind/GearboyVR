@@ -1,56 +1,4 @@
-#include <OVR_FileSys.h>
-#include <OVR_Input.h>
-#include <VrApi_Input.h>
-#include <VrApi_Types.h>
-#include <chrono>
-#include <cstdlib>
-#include <ctime>
-#include <fstream>
-#include <iostream>
-#include <map>
-#include <string>
-
-#include <VRMenu.h>
-#include <dirent.h>
-#include <algorithm>
-#include "GuiSys.h"
-#include "OVR_Locale.h"
 #include "OvrApp.h"
-
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <glm/gtc/type_ptr.hpp>
-
-#include <gli/convert.hpp>    // convert a texture from a format to another
-#include <gli/duplicate.hpp>  // duplicate the data of a texture, allocating a new texture storage
-#include <gli/dx.hpp>         // facilitate the use of GLI with Direct3D API
-#include <gli/format.hpp>     // list of the supported formats
-#include <gli/generate_mipmaps.hpp>  // generating the mipmaps of a texture
-#include <gli/gl.hpp>                // translate GLI enums to OpenGL enums
-#include <gli/gli.hpp>
-#include <gli/image.hpp>  // use images, a representation of a single texture level.
-#include <gli/levels.hpp>  // compute the number of mipmaps levels necessary to create a mipmap complete texture.
-#include <gli/load.hpp>                // load DDS, KTX or KMG textures from files or memory.
-#include <gli/load_dds.hpp>            // load DDS textures from files or memory.
-#include <gli/reduce.hpp>              // include to perform reduction operations.
-#include <gli/sampler.hpp>             // enumations for texture sampling
-#include <gli/sampler1d.hpp>           // class to sample 1d texture
-#include <gli/sampler1d_array.hpp>     // class to sample 1d array texture
-#include <gli/sampler2d.hpp>           // class to sample 2d texture
-#include <gli/sampler2d_array.hpp>     // class to sample 2d array texture
-#include <gli/sampler_cube.hpp>        // class to sample cube texture
-#include <gli/sampler_cube_array.hpp>  // class to sample cube array texture
-#include <gli/target.hpp>              // helper function to query property of a generic texture
-#include <gli/texture.hpp>          // generic texture class that can represent any kind of texture
-#include <gli/texture2d.hpp>        // representation of a 2d texture
-#include <gli/texture2d_array.hpp>  // representation of a 2d array texture
-
-#include <gearboy.h>
-
-#include "DrawHelper.h"
-#include "Emulator.h"
-#include "FontMaster.h"
-#include "LayerBuilder.h"
 
 using namespace OVR;
 
@@ -1052,74 +1000,74 @@ void StartTransition(Menu *next, int dir) {
   nextMenu = next;
 }
 
-void OnClickResumGame(MenuButton *item) {
+void OnClickResumGame(MenuItem *item) {
   LOG("Pressed RESUME GAME");
   menuOpen = false;
 }
 
-void OnClickResetGame(MenuButton *item) {
+void OnClickResetGame(MenuItem *item) {
   LOG("RESET GAME");
   Emulator::ResetGame();
   menuOpen = false;
 }
 
-void OnClickSaveGame(MenuButton *item) {
+void OnClickSaveGame(MenuItem *item) {
   LOG("on click save game");
   Emulator::SaveState(saveSlot);
   menuOpen = false;
 }
 
-void OnClickLoadGame(MenuButton *item) {
+void OnClickLoadGame(MenuItem *item) {
   Emulator::LoadState(saveSlot);
   menuOpen = false;
 }
 
-void OnClickLoadRomGame(MenuButton *item) { romSelection = true; }
+void OnClickLoadRomGame(MenuItem *item) { romSelection = true; }
 
-void OnClickSettingsGame(MenuButton *item) { StartTransition(&settingsMenu, 1); }
+void OnClickSettingsGame(MenuItem *item) { StartTransition(&settingsMenu, 1); }
 
-void ChangePalette(MenuButton *item, int dir) {
+void ChangePalette(MenuItem *item, int dir) {
   Emulator::ChangePalette(dir);
-  item->Text = "Palette: " + to_string(Emulator::selectedPalette);
+  ((MenuButton *)item)->Text = "Palette: " + to_string(Emulator::selectedPalette);
 }
 
-void OnClickChangePaletteLeft(MenuButton *item) {
+void OnClickChangePaletteLeft(MenuItem *item) {
   ChangePalette(item, -1);
   SaveSettings();
 }
 
-void OnClickChangePaletteRight(MenuButton *item) {
+void OnClickChangePaletteRight(MenuItem *item) {
   ChangePalette(item, 1);
   SaveSettings();
 }
 
-void SetForceDMG(MenuButton *item, bool newForceDMG) {
+void SetForceDMG(MenuItem *item, bool newForceDMG) {
   Emulator::forceDMG = newForceDMG;
-  item->Text = strForceDMG[Emulator::forceDMG ? 0 : 1];
+  ((MenuButton *)item)->Text = strForceDMG[Emulator::forceDMG ? 0 : 1];
 }
 
-void OnClickEmulatedModel(MenuButton *item) {
+void OnClickEmulatedModel(MenuItem *item) {
   SetForceDMG(item, !Emulator::forceDMG);
   SaveSettings();
 }
 
-void OnClickFollowMode(MenuButton *item) {
+void OnClickFollowMode(MenuItem *item) {
   followHead = !followHead;
-  item->Text = strMove[followHead ? 0 : 1];
+  ((MenuButton *)item)->Text = strMove[followHead ? 0 : 1];
   SaveSettings();
 }
 
-void OnClickMoveScreen(MenuButton *item) { StartTransition(&moveMenu, 1); }
+void OnClickMoveScreen(MenuItem *item) { StartTransition(&moveMenu, 1); }
 
-void OnClickMappingScreen(MenuButton *item) { StartTransition(&buttonMapMenu, 1); }
+void OnClickMappingScreen(MenuItem *item) { StartTransition(&buttonMapMenu, 1); }
 
-void OnClickAllowLeftRight(MenuButton *item) {
+void OnClickAllowLeftRight(MenuItem *item) {
   allowUpDownSlashLeftRight = !allowUpDownSlashLeftRight;
-  item->Text = "Allow Up+Down / Left+Right: ";
-  item->Text += (allowUpDownSlashLeftRight ? "Enabled" : "Disabled");
+  ((MenuButton *)item)->Text = "Allow Up+Down / Left+Right: ";
+  ((MenuButton *)item)->Text += (allowUpDownSlashLeftRight ? "Enabled" : "Disabled");
 }
 
-void OnClickBackAndSave(MenuButton *item) {
+void OnClickBackAndSave(MenuItem *item) {
   StartTransition(&mainMenu, -1);
   SaveSettings();
 }
@@ -1129,7 +1077,7 @@ void OnBackPressedSettings() {
   SaveSettings();
 }
 
-void OnClickBackMove(MenuButton *item) {
+void OnClickBackMove(MenuItem *item) {
   StartTransition(&settingsMenu, -1);
   SaveSettings();
 }
@@ -1139,58 +1087,58 @@ void OnBackPressedMove() {
   SaveSettings();
 }
 
-void OnClickSaveSlotLeft(MenuButton *item) {
+void OnClickSaveSlotLeft(MenuItem *item) {
   saveSlot--;
   if (saveSlot < 0) saveSlot = MAX_SAVESLOTS - 1;
-  item->Text = "Save Slot: " + to_string(saveSlot);
+  ((MenuButton *)item)->Text = "Save Slot: " + to_string(saveSlot);
   Emulator::UpdateStateImage(saveSlot);
   SaveSettings();
 }
 
-void OnClickSaveSlotRight(MenuButton *item) {
+void OnClickSaveSlotRight(MenuItem *item) {
   saveSlot++;
   if (saveSlot >= MAX_SAVESLOTS) saveSlot = 0;
-  item->Text = "Save Slot: " + to_string(saveSlot);
+  ((MenuButton *)item)->Text = "Save Slot: " + to_string(saveSlot);
   Emulator::UpdateStateImage(saveSlot);
   SaveSettings();
 }
 
 float ToDegree(float radian) { return (int)(180.0 / VRAPI_PI * radian * 10) / 10.0f; }
 
-void MoveYaw(MenuButton *item, float dir) {
+void MoveYaw(MenuItem *item, float dir) {
   LayerBuilder::screenYaw -= dir;
-  item->Text = "Yaw: " + to_string(ToDegree(LayerBuilder::screenYaw));
+  ((MenuButton *)item)->Text = "Yaw: " + to_string(ToDegree(LayerBuilder::screenYaw));
 }
 
-void MovePitch(MenuButton *item, float dir) {
+void MovePitch(MenuItem *item, float dir) {
   LayerBuilder::screenPitch -= dir;
-  item->Text = "Pitch: " + to_string(ToDegree(LayerBuilder::screenPitch));
+  ((MenuButton *)item)->Text = "Pitch: " + to_string(ToDegree(LayerBuilder::screenPitch));
 }
 
-void MoveRoll(MenuButton *item, float dir) {
+void MoveRoll(MenuItem *item, float dir) {
   LayerBuilder::screenRoll -= dir;
-  item->Text = "Roll: " + to_string(ToDegree(LayerBuilder::screenRoll));
+  ((MenuButton *)item)->Text = "Roll: " + to_string(ToDegree(LayerBuilder::screenRoll));
 }
 
-void ChangeDistance(MenuButton *item, float dir) {
+void ChangeDistance(MenuItem *item, float dir) {
   LayerBuilder::radiusMenuScreen -= dir;
 
   if (LayerBuilder::radiusMenuScreen < MIN_RADIUS) LayerBuilder::radiusMenuScreen = MIN_RADIUS;
   if (LayerBuilder::radiusMenuScreen > MAX_RADIUS) LayerBuilder::radiusMenuScreen = MAX_RADIUS;
 
-  item->Text = "Distance: " + to_string(LayerBuilder::radiusMenuScreen);
+  ((MenuButton *)item)->Text = "Distance: " + to_string(LayerBuilder::radiusMenuScreen);
 }
 
-void ChangeScale(MenuButton *item, float dir) {
+void ChangeScale(MenuItem *item, float dir) {
   LayerBuilder::screenSize -= dir;
 
   if (LayerBuilder::screenSize < 0.5f) LayerBuilder::screenSize = 0.5f;
   if (LayerBuilder::screenSize > 2.0f) LayerBuilder::screenSize = 2.0f;
 
-  item->Text = "Scale: " + to_string(LayerBuilder::screenSize);
+  ((MenuButton *)item)->Text = "Scale: " + to_string(LayerBuilder::screenSize);
 }
 
-void OnClickResetView(MenuButton *item) {
+void OnClickResetView(MenuItem *item) {
   LayerBuilder::ResetValues();
 
   // updates the visible values
@@ -1203,54 +1151,54 @@ void OnClickResetView(MenuButton *item) {
   SaveSettings();
 }
 
-void MoveAButtonMapping(MenuButton *item, int dir) {
+void MoveAButtonMapping(MenuItem *item, int dir) {
   Emulator::ChangeButtonMapping(0, dir);
-  item->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[0]];
+  ((MenuButton *)item)->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[0]];
 }
 
-void MoveBButtonMapping(MenuButton *item, int dir) {
+void MoveBButtonMapping(MenuItem *item, int dir) {
   Emulator::ChangeButtonMapping(1, dir);
-  item->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[1]];
+  ((MenuButton *)item)->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[1]];
 }
 
-void MoveMenuButtonMapping(MenuButton *item, int dir) {
+void MoveMenuButtonMapping(MenuItem *item, int dir) {
   button_mapping_menu_index += dir;
   if (button_mapping_menu_index > 3) button_mapping_menu_index = 2;
 
   button_mapping_menu = MapButtons[button_mapping_menu_index];
-  item->Text = "menu mapped to: " + MapButtonStr[button_mapping_menu_index];
+  ((MenuButton *)item)->Text = "menu mapped to: " + MapButtonStr[button_mapping_menu_index];
 }
 
-void OnClickChangeMenuButtonLeft(MenuButton *item) { MoveMenuButtonMapping(item, 1); }
-void OnClickChangeMenuButtonRight(MenuButton *item) { MoveMenuButtonMapping(item, 1); }
+void OnClickChangeMenuButtonLeft(MenuItem *item) { MoveMenuButtonMapping(item, 1); }
+void OnClickChangeMenuButtonRight(MenuItem *item) { MoveMenuButtonMapping(item, 1); }
 
-void OnClickChangeAButtonLeft(MenuButton *item) { MoveAButtonMapping(item, -1); }
-void OnClickChangeAButtonRight(MenuButton *item) { MoveAButtonMapping(item, 1); }
+void OnClickChangeAButtonLeft(MenuItem *item) { MoveAButtonMapping(item, -1); }
+void OnClickChangeAButtonRight(MenuItem *item) { MoveAButtonMapping(item, 1); }
 
-void OnClickChangeBButtonLeft(MenuButton *item) { MoveBButtonMapping(item, -1); }
-void OnClickChangeBButtonRight(MenuButton *item) { MoveBButtonMapping(item, 1); }
+void OnClickChangeBButtonLeft(MenuItem *item) { MoveBButtonMapping(item, -1); }
+void OnClickChangeBButtonRight(MenuItem *item) { MoveBButtonMapping(item, 1); }
 
-void OnClickMoveScreenYawLeft(MenuButton *item) { MoveYaw(item, MoveSpeed); }
+void OnClickMoveScreenYawLeft(MenuItem *item) { MoveYaw(item, MoveSpeed); }
 
-void OnClickMoveScreenYawRight(MenuButton *item) { MoveYaw(item, -MoveSpeed); }
+void OnClickMoveScreenYawRight(MenuItem *item) { MoveYaw(item, -MoveSpeed); }
 
-void OnClickMoveScreenPitchLeft(MenuButton *item) { MovePitch(item, -MoveSpeed); }
+void OnClickMoveScreenPitchLeft(MenuItem *item) { MovePitch(item, -MoveSpeed); }
 
-void OnClickMoveScreenPitchRight(MenuButton *item) { MovePitch(item, MoveSpeed); }
+void OnClickMoveScreenPitchRight(MenuItem *item) { MovePitch(item, MoveSpeed); }
 
-void OnClickMoveScreenRollLeft(MenuButton *item) { MoveRoll(item, -MoveSpeed); }
+void OnClickMoveScreenRollLeft(MenuItem *item) { MoveRoll(item, -MoveSpeed); }
 
-void OnClickMoveScreenRollRight(MenuButton *item) { MoveRoll(item, MoveSpeed); }
+void OnClickMoveScreenRollRight(MenuItem *item) { MoveRoll(item, MoveSpeed); }
 
-void OnClickMoveScreenDistanceLeft(MenuButton *item) { ChangeDistance(item, ZoomSpeed); }
+void OnClickMoveScreenDistanceLeft(MenuItem *item) { ChangeDistance(item, ZoomSpeed); }
 
-void OnClickMoveScreenDistanceRight(MenuButton *item) { ChangeDistance(item, -ZoomSpeed); }
+void OnClickMoveScreenDistanceRight(MenuItem *item) { ChangeDistance(item, -ZoomSpeed); }
 
-void OnClickMoveScreenScaleLeft(MenuButton *item) { ChangeScale(item, MoveSpeed); }
+void OnClickMoveScreenScaleLeft(MenuItem *item) { ChangeScale(item, MoveSpeed); }
 
-void OnClickMoveScreenScaleRight(MenuButton *item) { ChangeScale(item, -MoveSpeed); }
+void OnClickMoveScreenScaleRight(MenuItem *item) { ChangeScale(item, -MoveSpeed); }
 
-void OnClickExit(MenuButton *item) {
+void OnClickExit(MenuItem *item) {
   Emulator::SaveRam();
   showExitDialog = true;
 }

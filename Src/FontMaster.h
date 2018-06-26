@@ -1,7 +1,8 @@
 #ifndef FONT_MASTER
 #define FONT_MASTER
 
-#include <glm/gtc/type_precision.hpp>
+#include "KingInclude.h"
+
 using namespace OVR;
 
 namespace FontManager {

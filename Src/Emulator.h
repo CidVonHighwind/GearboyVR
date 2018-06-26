@@ -1,7 +1,7 @@
-#include <1stParty/OpenGL_Loader/Include/GLES3/gl3_loader.h>
-#include <VrAppFramework/Include/OVR_Input.h>
-#include <gearboy.h>
-#include <string>
+#ifndef EMULATOR_H
+#define EMULATOR_H
+
+#include "KingInclude.h"
 
 namespace Emulator {
 
@@ -82,3 +82,5 @@ void SetPalette(GB_Color *newPalette);
 bool SortByRomName(const Rom &first, const Rom &second);
 
 }  // namespace Emulator
+
+#endif

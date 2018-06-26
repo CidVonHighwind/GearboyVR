@@ -1,22 +1,3 @@
-#include <OVR_FileSys.h>
-#include <OVR_Input.h>
-#include <VRMenu.h>
-#include <VrApi_Input.h>
-#include <VrApi_Types.h>
-#include <dirent.h>
-#include <fstream>
-#include <iostream>
-#include <map>
-#include "OVR_Locale.h"
-#include "OvrApp.h"
-
-#include "glm/glm.hpp"
-#include "glm/gtc/matrix_transform.hpp"
-#include "glm/gtc/type_ptr.hpp"
-
-#include <ft2build.h>
-#include FT_FREETYPE_H
-
 #include "FontMaster.h"
 
 using namespace OVR;

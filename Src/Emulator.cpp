@@ -1,12 +1,5 @@
+
 #include "Emulator.h"
-
-#include <1stParty/OpenGL_Loader/Include/GLES3/gl3_loader.h>
-#include <LibOVRKernel/Src/Kernel/OVR_LogUtils.h>
-#include <OVR_Input.h>
-#include <VrAppFramework/Include/OVR_GlUtils.h>
-#include <gearboy.h>
-
-#include "Audio/OpenSLWrap.h"
 
 namespace Emulator {
 GB_Color *gearboy_frame_buf;

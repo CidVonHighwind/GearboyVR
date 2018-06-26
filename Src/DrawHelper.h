@@ -1,21 +1,7 @@
-#include <OVR_FileSys.h>
-#include <OVR_Input.h>
-#include <VrApi_Input.h>
-#include <VrApi_Types.h>
-#include <fstream>
-#include <iostream>
-#include <map>
+#ifndef DRAW_HELPER_H
+#define DRAW_HELPER_H
 
-#include <VRMenu.h>
-#include <dirent.h>
-#include <algorithm>
-#include "GuiSys.h"
-#include "OVR_Locale.h"
-#include "OvrApp.h"
-
-#include "glm/glm.hpp"
-#include "glm/gtc/matrix_transform.hpp"
-#include "glm/gtc/type_ptr.hpp"
+#include "KingInclude.h"
 
 namespace DrawHelper {
 
@@ -25,3 +11,5 @@ void DrawTexture(GLuint textureId, GLfloat posX, GLfloat posY, GLfloat width, GL
                  ovrVector4f color, float transparency);
 
 }  // namespace DrawHelper
+
+#endif

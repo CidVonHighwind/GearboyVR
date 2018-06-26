@@ -1,11 +1,7 @@
 #ifndef OVRAPP_H
 #define OVRAPP_H
 
-#include "App.h"
-#include "FontMaster.h"
-#include "GuiSys.h"
-#include "SceneView.h"
-#include "SoundEffectContext.h"
+#include "KingInclude.h"
 
 namespace OVR {
 class ovrLocale;
@@ -18,7 +14,10 @@ class MenuItem {
   bool Visible = true;
   int PosX = 100, PosY = 100;
 
- public:
+  void (*PressFunction)(MenuItem *item);
+  void (*LeftFunction)(MenuItem *item);
+  void (*RightFunction)(MenuItem *item);
+
   virtual ~MenuItem() {}
   virtual void DrawText(float offsetX, float transparency) {}
   virtual void DrawTexture(float offsetX, float transparency) {}
@@ -73,8 +72,8 @@ class MenuImage : public MenuItem {
 class MenuButton : public MenuItem {
  public:
   MenuButton(GLuint iconId, std::string text, int posX, int posY,
-             void (*pressFunction)(MenuButton *item), void (*leftFunction)(MenuButton *item),
-             void (*rightFunction)(MenuButton *item)) {
+             void (*pressFunction)(MenuItem *item), void (*leftFunction)(MenuItem *item),
+             void (*rightFunction)(MenuItem *item)) {
     PosX = posX;
     PosY = posY;
     IconId = iconId;
@@ -89,12 +88,6 @@ class MenuButton : public MenuItem {
   GLuint IconId;
 
   std::string Text;
-
-  void (*PressFunction)(MenuButton *item);
-
-  void (*LeftFunction)(MenuButton *item);
-
-  void (*RightFunction)(MenuButton *item);
 
   virtual void DrawText(float offsetX, float transparency) override;
 
