@@ -156,13 +156,13 @@ Vector4f BatteryBackgroundColor{0.15f, 0.15f, 0.15f, 1.0f};
 ovrTextureSwapChain *MenuSwapChain;
 GLuint MenuFrameBuffer = 0;
 
-GLuint textureIdMenu, textureHeaderIconId, textureGbIconId, textureGbcIconId,
-    textureSaveIconId, textureLoadIconId, textureWhiteId, texturePlayId, textureResumeId,
-    textureSettingsId, texuterLeftRightIconId, textureUpDownIconId, textureResetIconId,
-    textureSaveSlotIconId, textureLoadRomIconId, textureBackIconId, textureMoveIconId,
-    textureDistanceIconId, textureResetViewIconId, textureScaleIconId, textureMappingIconId,
-    texturePaletteIconId, textureButtonAIconId, textureButtonBIconId, textureFollowHeadIconId,
-    textureDMGIconId, textureExitIconId;
+GLuint textureIdMenu, textureHeaderIconId, textureGbIconId, textureGbcIconId, textureSaveIconId,
+    textureLoadIconId, textureWhiteId, texturePlayId, textureResumeId, textureSettingsId,
+    texuterLeftRightIconId, textureUpDownIconId, textureResetIconId, textureSaveSlotIconId,
+    textureLoadRomIconId, textureBackIconId, textureMoveIconId, textureDistanceIconId,
+    textureResetViewIconId, textureScaleIconId, textureMappingIconId, texturePaletteIconId,
+    textureButtonAIconId, textureButtonBIconId, textureFollowHeadIconId, textureDMGIconId,
+    textureExitIconId;
 
 template <typename T>
 std::string to_string(T value) {
@@ -187,25 +187,32 @@ float transitionState = 1;
 Menu *currentMenu, *nextMenu;
 Menu mainMenu, settingsMenu, moveMenu, buttonMapMenu;
 
+MenuLabel *emptySlotLabel;
+
 MenuButton *yawButton;
 MenuButton *pitchButton;
 MenuButton *rollButton;
 MenuButton *scaleButton;
 MenuButton *distanceButton;
 
-void MenuButton::DrawText(float transparency) {
-  FontManager::RenderText(fontMenu, Text,
-                          PosX + 30 + (Selected ? 5 : 0) +
-                              transitionDir * transitionMoveDir * (1 - transitionState) * 20,
-                          PosY, 1.0f, Selected ? textSelectionColor : textColor, transparency);
+void MenuLabel::DrawText(float offsetX, float transparency) {
+  if (Visible) FontManager::RenderText(Font, Text, PosX, PosY, 1.0f, Color, transparency);
 }
 
-void MenuButton::DrawTexture(float transparency) {
-  if (IconId > 0)
-    DrawHelper::DrawTexture(
-        IconId,
-        PosX + (Selected ? 5 : 0) + transitionDir * transitionMoveDir * (1 - transitionState) * 20,
-        PosY + 3, 26, 26, Selected ? textSelectionColor : textColor, transparency);
+void MenuImage::DrawTexture(float offsetX, float transparency) {
+  if (Visible) DrawHelper::DrawTexture(ImageId, PosX, PosY, Width, Height, Color, transparency);
+}
+
+void MenuButton::DrawText(float offsetX, float transparency) {
+  if (Visible)
+    FontManager::RenderText(fontMenu, Text, PosX + 30 + (Selected ? 5 : 0) + offsetX, PosY, 1.0f,
+                            Selected ? textSelectionColor : textColor, transparency);
+}
+
+void MenuButton::DrawTexture(float offsetX, float transparency) {
+  if (IconId > 0 && Visible)
+    DrawHelper::DrawTexture(IconId, PosX + (Selected ? 5 : 0) + offsetX, PosY + 3, 26, 26,
+                            Selected ? textSelectionColor : textColor, transparency);
 }
 
 #if defined(OVR_OS_ANDROID)
@@ -251,8 +258,7 @@ OvrApp::OvrApp()
       SoundEffectPlayer(NULL),
       GuiSys(OvrGuiSys::Create()),
       Locale(NULL),
-      SceneModel(NULL) {
-}
+      SceneModel(NULL) {}
 
 OvrApp::~OvrApp() {
   delete SoundEffectPlayer;
@@ -716,20 +722,16 @@ void UpdateRomSelection(const ovrFrameInput &vrFrame) {
 
 void UpdateMenu(const ovrFrameInput &vrFrame) {
   if (isTransitioning) {
-    transitionState += 0.25f * transitionDir;
-    if (transitionDir <= 0) {
-      if (transitionState < 0) {
-        transitionDir = 1;
-        transitionState = 0;
-        currentMenu = nextMenu;
-      }
-    } else {
-      if (transitionState >= 1) {
-        transitionState = 1;
-        isTransitioning = false;
-      }
+    transitionState -= 0.15f;
+    if (transitionState < 0) {
+      transitionState = 1;
+      isTransitioning = false;
+      currentMenu = nextMenu;
     }
   }
+
+  // @hack: this should be done nicer
+  emptySlotLabel->Visible = !Emulator::currentGame->saveStates[saveSlot].filled;
 
   // could be done with a single &
   if (vrFrame.Input.buttonState & BUTTON_LSTICK_UP || vrFrame.Input.buttonState & BUTTON_DPAD_UP ||
@@ -798,37 +800,28 @@ void UpdateGUI(const ovrFrameInput &vrFrame) {
 
 void DrawMenu() {
   LOG("Draw Menu");
+
+  float progress = sinf((1 - transitionState) * MATH_FLOAT_PIOVER2);
+
   // draw menu strings
   FontManager::Begin();
+
   for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
-    currentMenu->MenuItems[i]->DrawText(transitionState);
+    currentMenu->MenuItems[i]->DrawText(-transitionMoveDir * progress * 150, (1 - progress));
+
+  if (isTransitioning)
+    for (uint i = 0; i < nextMenu->MenuItems.size(); i++)
+      nextMenu->MenuItems[i]->DrawText(transitionMoveDir * (1 - progress) * 100, progress);
 
   FontManager::Close();
 
   // draw the menu textures
   for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
-    currentMenu->MenuItems[i]->DrawTexture(transitionState);
+    currentMenu->MenuItems[i]->DrawTexture(-transitionMoveDir * progress * 150, (1 - progress));
 
-  // state screenshot background
-  if (currentMenu == &mainMenu || currentMenu == &settingsMenu)
-    DrawHelper::DrawTexture(textureWhiteId, menuWidth - 320 - 20 - 5, HEADER_HEIGHT + 20 - 5,
-                            320 + 10, 288 + 10, MenuBackgroundOverlayColor, 1);
-  // save slot image
-  if (currentMenu == &mainMenu) {
-    if (Emulator::currentGame->saveStates[saveSlot].filled) {
-      DrawHelper::DrawTexture(Emulator::stateImageId, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 160 * 2,
-                              144 * 2, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
-    } else {
-      // menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288
-      FontManager::Begin();
-      FontManager::RenderText(fontSlot, strNoSave, menuWidth - 160 - 20 - strNoSaveWidth / 2,
-                              HEADER_HEIGHT + 20 + 144 - 26, 1.0f, {0.95f, 0.95f, 0.95f, 1.0f}, 1);
-      FontManager::Close();
-    }
-  } else if (currentMenu == &settingsMenu) {
-    DrawHelper::DrawTexture(Emulator::textureID, menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320,
-                            144 * 2, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
-  }
+  if (isTransitioning)
+    for (uint i = 0; i < nextMenu->MenuItems.size(); i++)
+      nextMenu->MenuItems[i]->DrawTexture(transitionMoveDir * (1 - progress) * 100, progress);
 }
 
 void DrawRomList() {
@@ -1055,7 +1048,6 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
 void StartTransition(Menu *next, int dir) {
   if (isTransitioning) return;
   isTransitioning = true;
-  transitionDir = -1;
   transitionMoveDir = dir;
   nextMenu = next;
 }
@@ -1289,6 +1281,31 @@ void OvrApp::SetUpMenu() {
   mainMenu.MenuItems.push_back(new MenuButton(
       textureExitIconId, "Exit", posX, posY += menuItemSize + 10, OnClickExit, nullptr, nullptr));
 
+  // background
+  mainMenu.MenuItems.push_back(new MenuImage(textureWhiteId, menuWidth - 320 - 20 - 5,
+                                             HEADER_HEIGHT + 20 - 5, 320 + 10, 288 + 10,
+                                             MenuBackgroundOverlayColor));
+  // image slot
+  mainMenu.MenuItems.push_back(new MenuImage(Emulator::stateImageId, menuWidth - 320 - 20,
+                                             HEADER_HEIGHT + 20, 320, 288,
+                                             {1.0f, 1.0f, 1.0f, 1.0f}));
+  emptySlotLabel = new MenuLabel(fontSlot, "--Empty Slot--", menuWidth - 320 - 20,
+                                 HEADER_HEIGHT + 20, 320, 288, {1.0f, 1.0f, 1.0f, 1.0f});
+  mainMenu.MenuItems.push_back(emptySlotLabel);
+
+  /*
+  if (Emulator::currentGame->saveStates[saveSlot].filled) {
+    DrawHelper::DrawTexture(Emulator::stateImageId, menuWidth - 320 - 20, HEADER_HEIGHT + 20,
+                            160 * 2, 144 * 2, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
+  } else {
+    // menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288
+    FontManager::Begin();
+    FontManager::RenderText(fontSlot, strNoSave, menuWidth - 160 - 20 - strNoSaveWidth / 2,
+                            HEADER_HEIGHT + 20 + 144 - 26, 1.0f, {0.95f, 0.95f, 0.95f, 1.0f}, 1);
+    FontManager::Close();
+  }
+  */
+
   // settings page
   posY = HEADER_HEIGHT + 20;
 
@@ -1313,6 +1330,15 @@ void OvrApp::SetUpMenu() {
   settingsMenu.MenuItems.push_back(new MenuButton(textureBackIconId, "Back", posX,
                                                   posY += menuItemSize + 5, OnClickBackAndSave,
                                                   nullptr, nullptr));
+
+  // state screenshot background
+  settingsMenu.MenuItems.push_back(new MenuImage(textureWhiteId, menuWidth - 320 - 20 - 5,
+                                                 HEADER_HEIGHT + 20 - 5, 320 + 10, 288 + 10,
+                                                 MenuBackgroundOverlayColor));
+  settingsMenu.MenuItems.push_back(new MenuImage(Emulator::textureID, menuWidth - 320 - 20,
+                                                 HEADER_HEIGHT + 20, 320, 288,
+                                                 {1.0f, 1.0f, 1.0f, 1.0f}));
+
   settingsMenu.BackPress = OnBackPressedSettings;
   // set text
   ChangePalette(paletteButton, 0);

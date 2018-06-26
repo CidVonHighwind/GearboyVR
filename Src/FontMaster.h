@@ -1,3 +1,7 @@
+#ifndef FONT_MASTER
+#define FONT_MASTER
+
+#include <glm/gtc/type_precision.hpp>
 using namespace OVR;
 
 namespace FontManager {
@@ -31,3 +35,5 @@ void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat
 void Close();
 
 }  // namespace FontManager
+
+#endif
