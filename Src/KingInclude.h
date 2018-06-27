@@ -49,6 +49,7 @@
 #include "FontMaster.h"
 #include "GuiSys.h"
 #include "LayerBuilder.h"
+#include "TextureLoader.h"
 #include "OVR_Locale.h"
 #include "SoundEffectContext.h"
 #include "Audio/OpenSLWrap.h"

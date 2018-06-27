@@ -26,7 +26,7 @@ void CloseFontLoader();
 
 int GetWidth(RenderFont font, std::string text);
 
-void LoadFont(RenderFont *font, char *filePath, uint fontSize);
+void LoadFont(RenderFont *font, const char *filePath, uint fontSize);
 
 void Begin();
 

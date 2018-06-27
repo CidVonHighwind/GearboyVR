@@ -61,7 +61,7 @@ void Init(GLfloat menuWidth, GLfloat menuHeight) {
   LOG("FontMaster Initialized");
 }
 
-void LoadFont(RenderFont *font, char *filePath, uint fontSize) {
+void LoadFont(RenderFont *font, const char *filePath, uint fontSize) {
   LOG("start loading font");
 
   font->FontSize = fontSize;
@@ -207,5 +207,4 @@ void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat
   // Render quad
   glDrawArrays(GL_TRIANGLES, 0, 6 * text.length());
 }
-
 }  // namespace FontManager

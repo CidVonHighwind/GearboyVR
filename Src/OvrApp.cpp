@@ -231,73 +231,6 @@ OvrApp::~OvrApp() {
   }
 }
 
-/// Filename can be KTX or DDS files
-GLuint Load_Texture(const void *Data, std::size_t Size) {
-  LOG("Loading Texture");
-
-  gli::texture Texture = gli::load((const char *)Data, Size);
-  if (Texture.empty()) {
-    LOG("Faild loading");
-    return 0;
-  }
-  LOG("Loaded TEXTURE");
-
-  // gli::gl GLF(gli::gl::PROFILE_ES30);
-  gli::gl GL1(gli::gl::PROFILE_ES30);
-  gli::gl::format const Format = GL1.translate(Texture.format(), Texture.swizzles());
-  GLenum Target = GL1.translate(Texture.target());
-
-  GLuint TextureName = 0;
-  glGenTextures(1, &TextureName);
-  glBindTexture(Target, TextureName);
-  glTexParameteri(Target, GL_TEXTURE_BASE_LEVEL, 0);
-  glTexParameteri(Target, GL_TEXTURE_MAX_LEVEL, static_cast<GLint>(Texture.levels() - 1));
-  glTexParameteri(Target, GL_TEXTURE_SWIZZLE_R, Format.Swizzles[0]);
-  glTexParameteri(Target, GL_TEXTURE_SWIZZLE_G, Format.Swizzles[1]);
-  glTexParameteri(Target, GL_TEXTURE_SWIZZLE_B, Format.Swizzles[2]);
-  glTexParameteri(Target, GL_TEXTURE_SWIZZLE_A, Format.Swizzles[3]);
-
-  glm::tvec3<GLsizei> const Extent(Texture.extent());
-  GLsizei const FaceTotal = static_cast<GLsizei>(Texture.layers() * Texture.faces());
-
-  glTexStorage2D(Target, static_cast<GLint>(Texture.levels()), Format.Internal, Extent.x,
-                 Texture.target() == gli::TARGET_2D ? Extent.y : FaceTotal);
-
-  for (std::size_t Layer = 0; Layer < Texture.layers(); ++Layer)
-    for (std::size_t Face = 0; Face < Texture.faces(); ++Face)
-      for (std::size_t Level = 0; Level < Texture.levels(); ++Level) {
-        GLsizei const LayerGL = static_cast<GLsizei>(Layer);
-        glm::tvec3<GLsizei> Extent(Texture.extent(Level));
-        Target = gli::is_target_cube(Texture.target())
-                     ? static_cast<GLenum>(GL_TEXTURE_CUBE_MAP_POSITIVE_X + Face)
-                     : Target;
-
-        if (gli::is_compressed(Texture.format())) {
-          if (Texture.target() == gli::TARGET_1D_ARRAY) LOG("TARGET_1D");
-          if (Texture.target() == gli::TARGET_2D) LOG("TARGET_2D");
-
-          glCompressedTexSubImage2D(Target, static_cast<GLint>(Level), 0, 0, Extent.x,
-                                    Texture.target() == gli::TARGET_1D_ARRAY ? LayerGL : Extent.y,
-                                    Format.Internal, static_cast<GLsizei>(Texture.size(Level)),
-                                    Texture.data(Layer, Face, Level));
-        } else {
-          glTexSubImage2D(Target, static_cast<GLint>(Level), 0, 0, Extent.x,
-                          Texture.target() == gli::TARGET_1D_ARRAY ? LayerGL : Extent.y,
-                          Format.External, Format.Type, Texture.data(Layer, Face, Level));
-        }
-      }
-
-  return TextureName;
-}
-
-GLuint Load_Texture(App *app, const char *path) {
-  static MemBufferT<uint8_t> buffer;
-
-  if (app->GetFileSys().ReadFile(path, buffer))
-    return Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-  return 0;
-}
-
 void OvrApp::Configure(ovrSettings &settings) {
   settings.CpuLevel = 0;
   settings.GpuLevel = 0;
@@ -306,13 +239,74 @@ void OvrApp::Configure(ovrSettings &settings) {
   settings.UseSrgbFramebuffer = true;
 }
 
+void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFromPackage,
+                           const char *intentJSON, const char *intentURI) {
+  OVR_UNUSED(intentFromPackage);
+  OVR_UNUSED(intentJSON);
+  OVR_UNUSED(intentURI);
+
+  if (intentType == INTENT_LAUNCH) {
+    FontManager::Init(menuWidth, menuHeight);
+    FontManager::LoadFont(&fontHeader, "/system/fonts/Roboto-Regular.ttf", 55);
+    FontManager::LoadFont(&fontMenu, "/system/fonts/Roboto-Light.ttf", 24);
+    FontManager::LoadFont(&fontList, "/system/fonts/Roboto-Light.ttf", 20);
+    FontManager::LoadFont(&fontSmall, "/system/fonts/Roboto-Light.ttf", 16);
+    FontManager::LoadFont(&fontSlot, "/system/fonts/Roboto-Light.ttf", 26);
+    FontManager::CloseFontLoader();
+
+    textureHeaderIconId = TextureLoader::Load(app, "apk:///assets/header_icon.dds");
+    textureGbIconId = TextureLoader::Load(app, "apk:///assets/gb_cartridge.dds");
+    textureGbcIconId = TextureLoader::Load(app, "apk:///assets/gbc_cartridge.dds");
+    textureSaveIconId = TextureLoader::Load(app, "apk:///assets/save_icon.dds");
+    textureLoadIconId = TextureLoader::Load(app, "apk:///assets/load_icon.dds");
+    textureResumeId = TextureLoader::Load(app, "apk:///assets/resume_icon.dds");
+    textureSettingsId = TextureLoader::Load(app, "apk:///assets/settings_icon.dds");
+    texuterLeftRightIconId = TextureLoader::Load(app, "apk:///assets/leftright_icon.dds");
+    textureUpDownIconId = TextureLoader::Load(app, "apk:///assets/updown_icon.dds");
+    textureResetIconId = TextureLoader::Load(app, "apk:///assets/reset_icon.dds");
+    textureSaveSlotIconId = TextureLoader::Load(app, "apk:///assets/save_slot_icon.dds");
+    textureLoadRomIconId = TextureLoader::Load(app, "apk:///assets/rom_list_icon.dds");
+    textureMoveIconId = TextureLoader::Load(app, "apk:///assets/move_icon.dds");
+    textureBackIconId = TextureLoader::Load(app, "apk:///assets/back_icon.dds");
+    textureDistanceIconId = TextureLoader::Load(app, "apk:///assets/distance_icon.dds");
+    textureResetViewIconId = TextureLoader::Load(app, "apk:///assets/reset_view_icon.dds");
+    textureScaleIconId = TextureLoader::Load(app, "apk:///assets/scale_icon.dds");
+    textureMappingIconId = TextureLoader::Load(app, "apk:///assets/mapping_icon.dds");
+    texturePaletteIconId = TextureLoader::Load(app, "apk:///assets/palette_icon.dds");
+    textureButtonAIconId = TextureLoader::Load(app, "apk:///assets/button_a_icon.dds");
+    textureButtonBIconId = TextureLoader::Load(app, "apk:///assets/button_b_icon.dds");
+    textureFollowHeadIconId = TextureLoader::Load(app, "apk:///assets/follow_head_icon.dds");
+    textureDMGIconId = TextureLoader::Load(app, "apk:///assets/force_dmg_icon.dds");
+    textureExitIconId = TextureLoader::Load(app, "apk:///assets/exit_icon.dds");
+
+    textureWhiteId = TextureLoader::CreateWhiteTexture();
+
+    DrawHelper::Init(menuWidth, menuHeight);
+
+    LoadSettings();
+
+    Emulator::Init(stateFolderPath);
+
+    ScanDirectory();
+
+    SetUpMenu();
+
+    CreateScreen();
+
+    // used to get the battery level
+    java = app->GetJava();
+    clsData = java->Env->GetObjectClass(java->ActivityObject);
+    getVal = java->Env->GetMethodID(clsData, "GetBatteryLevel", "()I");
+
+  } else if (intentType == INTENT_NEW) {
+  }
+}
+
 int UpdateBatteryLevel() {
   jint bLevel = java->Env->CallIntMethod(java->ActivityObject, getVal);
   int returnValue = (int)bLevel;
   return returnValue;
 }
-
-void SetUpScrollList() { menuItemSize = (fontMenu.FontSize + 7); }
 
 void CreateScreen() {
   // menu layer
@@ -353,14 +347,6 @@ void CreateScreen() {
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
   LOG("finished creating screens");
-}
-
-void CreateWhiteImage() {
-  uint32_t white = 0xFFFFFFFF;
-  glGenTextures(1, &textureWhiteId);
-  glBindTexture(GL_TEXTURE_2D, textureWhiteId);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, &white);
-  glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void SaveSettings() {
@@ -429,8 +415,6 @@ void ScanDirectory() {
       fullPath.append("/");
       fullPath.append(ent->d_name);
 
-      LOG("storageDir: %s", romFolderPath.c_str());
-
       // check if it is a file
       // gb|dmg|gbc|cgb|sgb
       if (ent->d_type == 8) {
@@ -472,96 +456,6 @@ void ScanDirectory() {
   }
 }
 
-void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFromPackage,
-                           const char *intentJSON, const char *intentURI) {
-  OVR_UNUSED(intentFromPackage);
-  OVR_UNUSED(intentJSON);
-  OVR_UNUSED(intentURI);
-
-  if (intentType == INTENT_LAUNCH) {
-    FontManager::Init(menuWidth, menuHeight);
-    FontManager::LoadFont(&fontHeader, const_cast<char *>("/system/fonts/Roboto-Regular.ttf"), 55);
-    FontManager::LoadFont(&fontMenu, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 24);
-    FontManager::LoadFont(&fontList, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 20);
-    FontManager::LoadFont(&fontSmall, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 16);
-    FontManager::LoadFont(&fontSlot, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 26);
-    FontManager::CloseFontLoader();
-
-    textureHeaderIconId = Load_Texture(app, "apk:///assets/header_icon.dds");
-    textureGbIconId = Load_Texture(app, "apk:///assets/gb_cartridge.dds");
-    textureGbcIconId = Load_Texture(app, "apk:///assets/gbc_cartridge.dds");
-    textureSaveIconId = Load_Texture(app, "apk:///assets/save_icon.dds");
-    textureLoadIconId = Load_Texture(app, "apk:///assets/load_icon.dds");
-    textureResumeId = Load_Texture(app, "apk:///assets/resume_icon.dds");
-    textureSettingsId = Load_Texture(app, "apk:///assets/settings_icon.dds");
-    texuterLeftRightIconId = Load_Texture(app, "apk:///assets/leftright_icon.dds");
-    textureUpDownIconId = Load_Texture(app, "apk:///assets/updown_icon.dds");
-    textureResetIconId = Load_Texture(app, "apk:///assets/reset_icon.dds");
-    textureSaveSlotIconId = Load_Texture(app, "apk:///assets/save_slot_icon.dds");
-    textureLoadRomIconId = Load_Texture(app, "apk:///assets/rom_list_icon.dds");
-    textureMoveIconId = Load_Texture(app, "apk:///assets/move_icon.dds");
-    textureBackIconId = Load_Texture(app, "apk:///assets/back_icon.dds");
-    textureDistanceIconId = Load_Texture(app, "apk:///assets/distance_icon.dds");
-    textureResetViewIconId = Load_Texture(app, "apk:///assets/reset_view_icon.dds");
-    textureScaleIconId = Load_Texture(app, "apk:///assets/scale_icon.dds");
-    textureMappingIconId = Load_Texture(app, "apk:///assets/mapping_icon.dds");
-    texturePaletteIconId = Load_Texture(app, "apk:///assets/palette_icon.dds");
-    textureButtonAIconId = Load_Texture(app, "apk:///assets/button_a_icon.dds");
-    textureButtonBIconId = Load_Texture(app, "apk:///assets/button_b_icon.dds");
-    textureFollowHeadIconId = Load_Texture(app, "apk:///assets/follow_head_icon.dds");
-    textureDMGIconId = Load_Texture(app, "apk:///assets/force_dmg_icon.dds");
-    textureExitIconId = Load_Texture(app, "apk:///assets/exit_icon.dds");
-
-    CreateWhiteImage();
-
-    // TODO move me to the launch of the app
-    DrawHelper::Init(menuWidth, menuHeight);
-
-    LoadSettings();
-
-    Emulator::Init(stateFolderPath);
-
-    ScanDirectory();
-
-    SetUpScrollList();
-
-    SetUpMenu();
-
-    CreateScreen();
-
-    java = app->GetJava();
-    SoundEffectContext = new ovrSoundEffectContext(*java->Env, java->ActivityObject);
-    SoundEffectContext->Initialize(&app->GetFileSys());
-    SoundEffectPlayer = new OvrGuiSys::ovrDummySoundEffectPlayer();
-
-    Locale = ovrLocale::Create(*java->Env, java->ActivityObject, "default");
-
-    clsData = java->Env->GetObjectClass(java->ActivityObject);
-    getVal = java->Env->GetMethodID(clsData, "GetBatteryLevel", "()I");
-
-    String fontName;
-    GetLocale().GetString("@string/font_name", "efigs.fnt", fontName);
-    GuiSys->Init(this->app, *SoundEffectPlayer, fontName.ToCStr(), &app->GetDebugLines());
-
-    LOG("Create the Menu");
-    // CreateMenu();
-
-    MaterialParms materialParms;
-    materialParms.UseSrgbTextureFormats = false;
-
-    const char *sceneUri = "apk:///assets/box.ovrscene";
-
-    SceneModel =
-        LoadModelFile(app->GetFileSys(), sceneUri, Scene.GetDefaultGLPrograms(), materialParms);
-
-    if (SceneModel != NULL) {
-    } else {
-      LOG("OvrApp::EnteredVrMode Failed to load %s", sceneUri);
-    }
-  } else if (intentType == INTENT_NEW) {
-  }
-}
-
 void OvrApp::LeavingVrMode() {}
 
 void GetTimeString(std::string &timeString) {
@@ -596,13 +490,12 @@ void UpdateMenu(const ovrFrameInput &vrFrame) {
       isTransitioning = false;
       currentMenu = nextMenu;
     }
-    return;
+  } else {
+    // @hack: this should be done nicer
+    emptySlotLabel->Visible = !Emulator::currentGame->saveStates[saveSlot].filled;
+
+    currentMenu->Update(vrFrame.Input.buttonState, lastButtonState);
   }
-
-  // @hack: this should be done nicer
-  emptySlotLabel->Visible = !Emulator::currentGame->saveStates[saveSlot].filled;
-
-  currentMenu->Update(vrFrame.Input.buttonState, lastButtonState);
 }
 
 void DrawMenu() {
@@ -1035,6 +928,9 @@ void OnClickBackMainMenu() {
 }
 
 void OvrApp::SetUpMenu() {
+  menuItemSize = (fontMenu.FontSize + 7);
+  strVersionWidth = GetWidth(fontSmall, STR_VERSION);
+
   romSelectionMenu.CurrentSelection = 0;
   romList = new MenuList(OnClickRom, romFileList, fontList, 10, HEADER_HEIGHT + 10, menuWidth - 20,
                          (menuHeight - HEADER_HEIGHT - 20));
@@ -1186,8 +1082,6 @@ void OvrApp::SetUpMenu() {
   MoveRoll(rollButton, 0);
   ChangeDistance(distanceButton, 0);
   ChangeScale(scaleButton, 0);
-
-  strVersionWidth = GetWidth(fontSmall, STR_VERSION);
 
   currentMenu = &romSelectionMenu;
 }

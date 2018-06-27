@@ -317,6 +317,9 @@ class Menu {
 };
 
 void SaveSettings();
+void LoadSettings();
+void ScanDirectory();
+void CreateScreen();
 
 class OvrApp : public OVR::VrAppInterface {
  public:
