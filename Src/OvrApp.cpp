@@ -25,34 +25,21 @@ using namespace OVR;
 
 const int SAVE_FILE_VERSION = 3;
 
-std::vector<Emulator::Rom> romFiles;
+std::vector<Emulator::Rom> *romFiles = new std::vector<Emulator::Rom>();
 
 GlProgram glprog;
 
-int listPosX = 0;
-int listPosY = 0;
-int scrollbarWidth = 10;
-int scrollbarHeight = 400;
-int listItemSize;
-int menuItemSize;
-int listStartY;
-
+int menuItemSize = 10;
 bool menuOpen = true;
-bool romSelection = true;
-bool loadedRom;
+bool loadedRom = false;
 
 // saved variables
-bool followHead;
-int saveSlot;
-bool allowUpDownSlashLeftRight;  // probably not necessary
+bool followHead = true;
+int saveSlot = 0;
 bool showExitDialog = false;
-
-int currentRomListSelection;
-int menuListState;
-int maxListItems = 18;
+int romSelection = 0;
 
 float transitionPercentage = 1.0f;
-int transitionDirection;
 
 std::string strForceDMG[] = {"Force DMG: Yes", "Force DMG: No"};
 std::string strMove[] = {"Follow Head: Yes", "Follow Head: No"};
@@ -63,7 +50,7 @@ int strMoveMenuTextWidth;
 int strNoSaveWidth;
 
 int button_mapping_menu;
-int button_mapping_menu_index = 3;
+int button_mapping_menu_index = 4;
 std::string MapButtonStr[] = {"A", "B", "X", "Y"};
 int MapButtons[] = {BUTTON_A, BUTTON_B, BUTTON_X, BUTTON_Y};
 
@@ -81,8 +68,6 @@ ovrVector4f textSelectionColor = {0.15f, 0.8f, 0.6f, 1.0f};
 ovrVector4f textColorVersion = {0.8f, 0.8f, 0.8f, 0.8f};
 ovrVector4f sliderColor = {0.8f, 0.8f, 0.8f, 0.8f};
 ovrVector4f headerColor = textColor;
-
-int buttonDownCount;
 
 FontManager::RenderFont fontHeader, fontMenu, fontList, fontSlot, fontSmall;
 
@@ -119,22 +104,13 @@ std::string to_string(T value) {
   return os.str();
 }
 
-class Menu {
- public:
-  int CurrentSelection;
-
-  std::vector<MenuItem *> MenuItems;
-
- public:
-  void (*BackPress)();
-};
-
 bool isTransitioning;
 int transitionDir, transitionMoveDir = 1;
 float transitionState = 1;
 Menu *currentMenu, *nextMenu;
-Menu mainMenu, settingsMenu, moveMenu, buttonMapMenu;
+Menu romSelectionMenu, mainMenu, settingsMenu, moveMenu, buttonMapMenu;
 
+MenuList *romList;
 MenuLabel *emptySlotLabel;
 
 MenuButton *yawButton;
@@ -161,6 +137,53 @@ void MenuButton::DrawTexture(float offsetX, float transparency) {
   if (IconId > 0 && Visible)
     DrawHelper::DrawTexture(IconId, PosX + (Selected ? 5 : 0) + offsetX, PosY + 3, 26, 26,
                             Selected ? textSelectionColor : textColor, transparency);
+}
+
+void MenuList::DrawText(float offsetX, float transparency) {
+  // draw rom list
+  for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
+    if (i < RomList->size()) {
+      FontManager::RenderText(
+          fontList, RomList->at(i).RomName,
+          PosX + offsetX + scrollbarWidth + 44 + (((uint)CurrentSelection == i) ? 5 : 0),
+          listStartY + listItemSize * (i - menuListState), 1.0f,
+          ((uint)CurrentSelection == i) ? textSelectionColor : textColor, transparency);
+    } else
+      break;
+  }
+}
+
+void MenuList::DrawTexture(float offsetX, float transparency) {
+  // calculate the slider position
+  float scale = maxListItems / (float)RomList->size();
+  if (scale > 1) scale = 1;
+  GLfloat recHeight = scrollbarHeight * scale;
+
+  GLfloat sliderPercentage = 0;
+  if (RomList->size() > maxListItems)
+    sliderPercentage = (menuListState / (float)(RomList->size() - maxListItems));
+  else
+    sliderPercentage = 0;
+
+  GLfloat recPosY = (scrollbarHeight - recHeight) * sliderPercentage;
+
+  // slider background
+  DrawHelper::DrawTexture(textureWhiteId, PosX + offsetX + 2, PosY, scrollbarWidth - 4,
+                          scrollbarHeight, MenuBackgroundOverlayColor, transparency);
+  // slider
+  DrawHelper::DrawTexture(textureWhiteId, PosX + offsetX, PosY + recPosY, scrollbarWidth, recHeight,
+                          sliderColor, transparency);
+
+  // draw the cartridge icons
+  for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
+    if (i < RomList->size()) {
+      DrawHelper::DrawTexture(
+          RomList->at(i).isGbc ? textureGbcIconId : textureGbIconId,
+          PosX + offsetX + scrollbarWidth + 15 + (((uint)CurrentSelection == i) ? 5 : 0),
+          listStartY + listItemSize * (i - menuListState), 21, 24, {1.0f, 1.0f, 1.0f, 1.0f},
+          transparency);
+    }
+  }
 }
 
 #if defined(OVR_OS_ANDROID)
@@ -296,15 +319,7 @@ int UpdateBatteryLevel() {
   return returnValue;
 }
 
-void SetUpScrollList() {
-  listItemSize = (fontList.FontSize + 11);
-  menuItemSize = (fontMenu.FontSize + 7);
-  listPosX = 5;
-  listPosY = HEADER_HEIGHT + 10;
-  maxListItems = (menuHeight - HEADER_HEIGHT - 20) / listItemSize;
-  scrollbarHeight = (menuHeight - HEADER_HEIGHT - 20);
-  listStartY = listPosY + (scrollbarHeight - (maxListItems * listItemSize)) / 2;
-}
+void SetUpScrollList() { menuItemSize = (fontMenu.FontSize + 7); }
 
 void CreateScreen() {
   // menu layer
@@ -360,7 +375,7 @@ void SaveSettings() {
   saveFile.write(reinterpret_cast<const char *>(&SAVE_FILE_VERSION), sizeof(int));
 
   Emulator::SaveSettings(&saveFile);
-  saveFile.write(reinterpret_cast<const char *>(&currentRomListSelection), sizeof(int));
+  saveFile.write(reinterpret_cast<const char *>(&romList->CurrentSelection), sizeof(int));
   saveFile.write(reinterpret_cast<const char *>(&saveSlot), sizeof(int));
   saveFile.write(reinterpret_cast<const char *>(&LayerBuilder::screenPitch), sizeof(float));
   saveFile.write(reinterpret_cast<const char *>(&LayerBuilder::screenYaw), sizeof(float));
@@ -385,7 +400,7 @@ void LoadSettings() {
     // only load if the save versions are compatible
     if (saveFileVersion == SAVE_FILE_VERSION) {
       Emulator::LoadSettings(&loadFile);
-      loadFile.read((char *)&currentRomListSelection, sizeof(int));
+      loadFile.read((char *)&romSelection, sizeof(int));
       loadFile.read((char *)&saveSlot, sizeof(int));
       loadFile.read((char *)&LayerBuilder::screenPitch, sizeof(float));
       loadFile.read((char *)&LayerBuilder::screenYaw, sizeof(float));
@@ -405,7 +420,7 @@ void LoadSettings() {
     loadFile.close();
   }
 
-  LOG("menu index %i", button_mapping_menu_index);
+  LOG("menu index %i", romSelection);
   button_mapping_menu = MapButtons[button_mapping_menu_index];
 }
 
@@ -448,7 +463,7 @@ void ScanDirectory() {
           newRom.isGbc = (strFilename.find(".gbc") != std::string::npos ||
                           strFilename.find(".cgb") != std::string::npos);
 
-          romFiles.push_back(newRom);
+          romFiles->push_back(newRom);
 
           LOG("found rom: %s %s %s", newRom.RomName.c_str(), newRom.FullPath.c_str(),
               newRom.SavePath.c_str());
@@ -457,7 +472,7 @@ void ScanDirectory() {
     }
     closedir(dir);
     LOG("sort list");
-    std::sort(romFiles.begin(), romFiles.end(), Emulator::SortByRomName);
+    std::sort(romFiles->begin(), romFiles->end(), Emulator::SortByRomName);
     LOG("finished sorting list");
   } else {
     LOG("could not open folder");
@@ -612,62 +627,6 @@ void GetBattryString(std::string &batteryString) {
   batter_string_width = FontManager::GetWidth(fontSmall, batteryString);
 }
 
-bool ButtonPressed(const ovrFrameInput &vrFrame, int button) {
-  return vrFrame.Input.buttonState & button &&
-         (!(lastButtonState & button) || buttonDownCount > SCROLL_DELAY);
-}
-
-void UpdateRomSelection(const ovrFrameInput &vrFrame) {
-  if (vrFrame.Input.buttonState & BUTTON_LSTICK_UP || vrFrame.Input.buttonState & BUTTON_DPAD_UP) {
-    if ((!(lastButtonState & BUTTON_LSTICK_UP) && !(lastButtonState & BUTTON_DPAD_UP)) ||
-        buttonDownCount > SCROLL_DELAY) {
-      currentRomListSelection--;
-      buttonDownCount -= SCROLL_TIME;
-    }
-    // @TODO use time instead
-    buttonDownCount++;
-  } else if (vrFrame.Input.buttonState & BUTTON_LSTICK_DOWN ||
-             vrFrame.Input.buttonState & BUTTON_DPAD_DOWN) {
-    if ((!(lastButtonState & BUTTON_LSTICK_DOWN) && !(lastButtonState & BUTTON_DPAD_DOWN)) ||
-        buttonDownCount > SCROLL_DELAY) {
-      currentRomListSelection++;
-      buttonDownCount -= SCROLL_TIME;
-    }
-    buttonDownCount++;
-  } else {
-    buttonDownCount = 0;
-  }
-
-  if (currentRomListSelection < 0)
-    currentRomListSelection = (int)(romFiles.size() - 1);
-  else if (currentRomListSelection >= romFiles.size())
-    currentRomListSelection = 0;
-
-  // scroll the menu
-  if (currentRomListSelection - 2 < menuListState && menuListState > 0) {
-    menuListState--;
-  }
-  if (currentRomListSelection + 2 >= menuListState + maxListItems &&
-      menuListState + maxListItems < romFiles.size()) {
-    menuListState++;
-  }
-
-  // load the selected rom
-  if (romFiles.size() > 0 && vrFrame.Input.buttonState & BUTTON_A &&
-      !(lastButtonState & BUTTON_A)) {
-    SaveSettings();
-    saveSlot = 0;
-    Emulator::LoadGame(&romFiles[currentRomListSelection]);
-    menuOpen = false;
-    romSelection = false;
-    loadedRom = true;
-  }
-  // go back
-  if (vrFrame.Input.buttonState & BUTTON_B && !(lastButtonState & BUTTON_B) && loadedRom) {
-    romSelection = false;
-  }
-}
-
 void UpdateMenu(const ovrFrameInput &vrFrame) {
   if (isTransitioning) {
     transitionState -= 0.15f;
@@ -676,87 +635,25 @@ void UpdateMenu(const ovrFrameInput &vrFrame) {
       isTransitioning = false;
       currentMenu = nextMenu;
     }
+    return;
   }
 
   // @hack: this should be done nicer
   emptySlotLabel->Visible = !Emulator::currentGame->saveStates[saveSlot].filled;
 
-  // could be done with a single &
-  if (vrFrame.Input.buttonState & BUTTON_LSTICK_UP || vrFrame.Input.buttonState & BUTTON_DPAD_UP ||
-      vrFrame.Input.buttonState & BUTTON_LSTICK_DOWN ||
-      vrFrame.Input.buttonState & BUTTON_DPAD_DOWN ||
-      vrFrame.Input.buttonState & BUTTON_LSTICK_LEFT ||
-      vrFrame.Input.buttonState & BUTTON_DPAD_LEFT ||
-      vrFrame.Input.buttonState & BUTTON_LSTICK_RIGHT ||
-      vrFrame.Input.buttonState & BUTTON_DPAD_RIGHT) {
-    buttonDownCount++;
-  } else {
-    buttonDownCount = 0;
-  }
-
-  if (ButtonPressed(vrFrame, BUTTON_LSTICK_UP) || ButtonPressed(vrFrame, BUTTON_DPAD_UP)) {
-    currentMenu->MenuItems[currentMenu->CurrentSelection]->Selected = false;
-    currentMenu->CurrentSelection--;
-    buttonDownCount -= SCROLL_TIME;
-  }
-
-  if (ButtonPressed(vrFrame, BUTTON_LSTICK_DOWN) || ButtonPressed(vrFrame, BUTTON_DPAD_DOWN)) {
-    currentMenu->MenuItems[currentMenu->CurrentSelection]->Selected = false;
-    currentMenu->CurrentSelection++;
-    buttonDownCount -= SCROLL_TIME;
-  }
-
-  if (currentMenu->CurrentSelection < 0)
-    currentMenu->CurrentSelection = (int)(currentMenu->MenuItems.size() - 1);
-  else if (currentMenu->CurrentSelection >= currentMenu->MenuItems.size())
-    currentMenu->CurrentSelection = 0;
-
-  currentMenu->MenuItems[currentMenu->CurrentSelection]->Selected = true;
-
-  MenuButton *button =
-      dynamic_cast<MenuButton *>(currentMenu->MenuItems[currentMenu->CurrentSelection]);
-
-  if (button != NULL) {
-    if (ButtonPressed(vrFrame, BUTTON_LSTICK_LEFT) || ButtonPressed(vrFrame, BUTTON_DPAD_LEFT)) {
-      if (button->LeftFunction != nullptr) button->LeftFunction(button);
-      buttonDownCount -= SCROLL_TIME_MOVE;
-    }
-
-    if (ButtonPressed(vrFrame, BUTTON_LSTICK_RIGHT) || ButtonPressed(vrFrame, BUTTON_DPAD_RIGHT)) {
-      if (button->RightFunction != nullptr) button->RightFunction(button);
-      buttonDownCount -= SCROLL_TIME_MOVE;
-    }
-
-    if (vrFrame.Input.buttonState & BUTTON_A && !(lastButtonState & BUTTON_A) &&
-        button->PressFunction != nullptr) {
-      button->PressFunction(button);
-    }
-  }
-
-  if (vrFrame.Input.buttonState & BUTTON_B && !(lastButtonState & BUTTON_B) &&
-      currentMenu->BackPress != nullptr) {
-    currentMenu->BackPress();
-  }
-}
-
-void UpdateGUI(const ovrFrameInput &vrFrame) {
-  if (romSelection)
-    UpdateRomSelection(vrFrame);
-  else
-    UpdateMenu(vrFrame);
+  currentMenu->Update(vrFrame.Input.buttonState, lastButtonState);
 }
 
 void DrawMenu() {
-  LOG("Draw Menu");
-
   float progress = sinf((1 - transitionState) * MATH_FLOAT_PIOVER2);
 
-  // draw menu strings
   FontManager::Begin();
 
+  // draw menu strings
   for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
     currentMenu->MenuItems[i]->DrawText(-transitionMoveDir * progress * 150, (1 - progress));
 
+  // fade in transition effect
   if (isTransitioning)
     for (uint i = 0; i < nextMenu->MenuItems.size(); i++)
       nextMenu->MenuItems[i]->DrawText(transitionMoveDir * (1 - progress) * 100, progress);
@@ -767,55 +664,10 @@ void DrawMenu() {
   for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
     currentMenu->MenuItems[i]->DrawTexture(-transitionMoveDir * progress * 150, (1 - progress));
 
+  // fade in transition effect
   if (isTransitioning)
     for (uint i = 0; i < nextMenu->MenuItems.size(); i++)
       nextMenu->MenuItems[i]->DrawTexture(transitionMoveDir * (1 - progress) * 100, progress);
-}
-
-void DrawRomList() {
-  // calculate the slider position
-  float scale = maxListItems / (float)romFiles.size();
-  if (scale > 1) scale = 1;
-  GLfloat recHeight = scrollbarHeight * scale;
-
-  GLfloat sliderPercentage = 0;
-  if (romFiles.size() > maxListItems)
-    sliderPercentage = (menuListState / (float)(romFiles.size() - maxListItems));
-  else
-    sliderPercentage = 0;
-
-  GLfloat recPosY = (scrollbarHeight - recHeight) * sliderPercentage;
-
-  // slider background
-  DrawHelper::DrawTexture(textureWhiteId, listPosX, listPosY, scrollbarWidth, scrollbarHeight,
-                          MenuBackgroundOverlayColor, 1);
-  // slider
-  DrawHelper::DrawTexture(textureWhiteId, listPosX, listPosY + recPosY, scrollbarWidth, recHeight,
-                          sliderColor, 1);
-
-  // draw the cartridge icons
-  for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
-    if (i < romFiles.size()) {
-      DrawHelper::DrawTexture(
-          romFiles[i].isGbc ? textureGbcIconId : textureGbIconId,
-          listPosX + scrollbarWidth + 15 + (((uint)currentRomListSelection == i) ? 5 : 0),
-          listStartY + listItemSize * (i - menuListState), 21, 24, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
-    }
-  }
-
-  FontManager::Begin();
-  // draw rom list
-  for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
-    if (i < romFiles.size()) {
-      FontManager::RenderText(
-          fontList, romFiles[i].RomName,
-          listPosX + scrollbarWidth + 44 + (((uint)currentRomListSelection == i) ? 5 : 0),
-          listStartY + listItemSize * (i - menuListState), 1.0f,
-          ((uint)currentRomListSelection == i) ? textSelectionColor : textColor, 1);
-    } else
-      break;
-  }
-  FontManager::Close();
 }
 
 void DrawGUI() {
@@ -867,10 +719,7 @@ void DrawGUI() {
   DrawHelper::DrawTexture(textureWhiteId, menuWidth - strVersionWidth - 106.0f,
                           HEADER_HEIGHT - height - 4, 8, height, BatteryColor, 1);
 
-  if (romSelection)
-    DrawRomList();
-  else
-    DrawMenu();
+  DrawMenu();
 
   glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
@@ -895,7 +744,7 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
     if (transitionPercentage < 1) transitionPercentage += 0.25f;
     if (transitionPercentage > 1) transitionPercentage = 1;
 
-    UpdateGUI(vrFrame);
+    UpdateMenu(vrFrame);
   }
 
   /*
@@ -1022,7 +871,7 @@ void OnClickLoadGame(MenuItem *item) {
   menuOpen = false;
 }
 
-void OnClickLoadRomGame(MenuItem *item) { romSelection = true; }
+void OnClickLoadRomGame(MenuItem *item) { StartTransition(&romSelectionMenu, -1); }
 
 void OnClickSettingsGame(MenuItem *item) { StartTransition(&settingsMenu, 1); }
 
@@ -1061,16 +910,12 @@ void OnClickMoveScreen(MenuItem *item) { StartTransition(&moveMenu, 1); }
 
 void OnClickMappingScreen(MenuItem *item) { StartTransition(&buttonMapMenu, 1); }
 
-void OnClickAllowLeftRight(MenuItem *item) {
-  allowUpDownSlashLeftRight = !allowUpDownSlashLeftRight;
-  ((MenuButton *)item)->Text = "Allow Up+Down / Left+Right: ";
-  ((MenuButton *)item)->Text += (allowUpDownSlashLeftRight ? "Enabled" : "Disabled");
-}
-
 void OnClickBackAndSave(MenuItem *item) {
   StartTransition(&mainMenu, -1);
   SaveSettings();
 }
+
+void OnBackPressedRomList() { StartTransition(&mainMenu, 1); }
 
 void OnBackPressedSettings() {
   StartTransition(&mainMenu, -1);
@@ -1203,7 +1048,27 @@ void OnClickExit(MenuItem *item) {
   showExitDialog = true;
 }
 
+void OnClickRom(Emulator::Rom *rom) {
+  LOG("LOAD ROM");
+  SaveSettings();
+  saveSlot = 0;
+  Emulator::LoadGame(rom);
+  currentMenu = &mainMenu;
+  menuOpen = false;
+  loadedRom = true;
+}
+
+void OnClickBackMainMenu() { menuOpen = false; }
+
 void OvrApp::SetUpMenu() {
+  // romSelectionMenu.CurrentSelection = 0;
+  romList = new MenuList(OnClickRom, romFiles, fontList, 10, HEADER_HEIGHT + 10, menuWidth - 20,
+                         (menuHeight - HEADER_HEIGHT - 20));
+  romList->CurrentSelection = romSelection;
+  romSelectionMenu.MenuItems.push_back(romList);
+  romSelectionMenu.BackPress = OnBackPressedRomList;
+  romSelectionMenu.Init();
+
   // main menu page
   int posX = 20;
   int posY = HEADER_HEIGHT + 20;
@@ -1240,19 +1105,8 @@ void OvrApp::SetUpMenu() {
   emptySlotLabel = new MenuLabel(fontSlot, "--Empty Slot--", menuWidth - 320 - 20,
                                  HEADER_HEIGHT + 20, 320, 288, {1.0f, 1.0f, 1.0f, 1.0f});
   mainMenu.MenuItems.push_back(emptySlotLabel);
-
-  /*
-  if (Emulator::currentGame->saveStates[saveSlot].filled) {
-    DrawHelper::DrawTexture(Emulator::stateImageId, menuWidth - 320 - 20, HEADER_HEIGHT + 20,
-                            160 * 2, 144 * 2, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
-  } else {
-    // menuWidth - 320 - 20, HEADER_HEIGHT + 20, 320, 288
-    FontManager::Begin();
-    FontManager::RenderText(fontSlot, strNoSave, menuWidth - 160 - 20 - strNoSaveWidth / 2,
-                            HEADER_HEIGHT + 20 + 144 - 26, 1.0f, {0.95f, 0.95f, 0.95f, 1.0f}, 1);
-    FontManager::Close();
-  }
-  */
+  mainMenu.Init();
+  mainMenu.BackPress = OnClickBackMainMenu;
 
   // settings page
   posY = HEADER_HEIGHT + 20;
@@ -1288,6 +1142,8 @@ void OvrApp::SetUpMenu() {
                                                  {1.0f, 1.0f, 1.0f, 1.0f}));
 
   settingsMenu.BackPress = OnBackPressedSettings;
+  settingsMenu.Init();
+
   // set text
   ChangePalette(paletteButton, 0);
   SetForceDMG(dmgButton, Emulator::forceDMG);
@@ -1315,19 +1171,25 @@ void OvrApp::SetUpMenu() {
                                                    posY += menuItemSize + 5, OnClickBackMove,
                                                    nullptr, nullptr));
   buttonMapMenu.BackPress = OnBackPressedMove;
+  buttonMapMenu.Init();
 
   // move menu page
   posY = HEADER_HEIGHT + 20;
   yawButton = new MenuButton(texuterLeftRightIconId, "", posX, posY, nullptr,
                              OnClickMoveScreenYawLeft, OnClickMoveScreenYawRight);
+  yawButton->ScrollTimeH = 1;
   pitchButton = new MenuButton(textureUpDownIconId, "", posX, posY += menuItemSize, nullptr,
                                OnClickMoveScreenPitchLeft, OnClickMoveScreenPitchRight);
+  pitchButton->ScrollTimeH = 1;
   rollButton = new MenuButton(textureResetIconId, "", posX, posY += menuItemSize, nullptr,
                               OnClickMoveScreenRollLeft, OnClickMoveScreenRollRight);
+  rollButton->ScrollTimeH = 1;
   distanceButton = new MenuButton(textureDistanceIconId, "", posX, posY += menuItemSize, nullptr,
                                   OnClickMoveScreenDistanceLeft, OnClickMoveScreenDistanceRight);
+  distanceButton->ScrollTimeH = 1;
   scaleButton = new MenuButton(textureScaleIconId, "", posX, posY += menuItemSize, nullptr,
                                OnClickMoveScreenScaleLeft, OnClickMoveScreenScaleRight);
+  scaleButton->ScrollTimeH = 1;
 
   moveMenu.MenuItems.push_back(yawButton);
   moveMenu.MenuItems.push_back(pitchButton);
@@ -1342,6 +1204,7 @@ void OvrApp::SetUpMenu() {
                                               posY += menuItemSize + 5, OnClickBackMove, nullptr,
                                               nullptr));
   moveMenu.BackPress = OnBackPressedMove;
+  moveMenu.Init();
 
   // updates the visible values
   MoveYaw(yawButton, 0);
@@ -1354,5 +1217,5 @@ void OvrApp::SetUpMenu() {
   strMoveMenuTextWidth = GetWidth(fontMenu, strMoveMenu);
   strNoSaveWidth = GetWidth(fontSlot, strNoSave);
 
-  currentMenu = &mainMenu;
+  currentMenu = &romSelectionMenu;
 }

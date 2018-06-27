@@ -1,6 +1,7 @@
 #ifndef ANDROID_KINGINCLUDE_H
 #define ANDROID_KINGINCLUDE_H
 
+// TODO: figure out why "SceneView.h" can't be at the bottom of this file
 #include "SceneView.h"
 #include <OVR_FileSys.h>
 #include <VRMenu.h>
