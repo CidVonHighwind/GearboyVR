@@ -6,7 +6,7 @@ include $(CLEAR_VARS)
 include ../../../../../cflags.mk
 
 LOCAL_MODULE			:= ovrapp
-LOCAL_SRC_FILES			:= ../../../Src/OvrApp.cpp ../../../Src/Audio/OpenSLWrap.cpp ../../../Src/LayerBuilder.cpp ../../../Src/FontMaster.cpp ../../../Src/DrawHelper.cpp ../../../Src/Emulator.cpp
+LOCAL_SRC_FILES			:= ../../../Src/OvrApp.cpp ../../../Src/Audio/OpenSLWrap.cpp ../../../Src/LayerBuilder.cpp ../../../Src/FontMaster.cpp ../../../Src/DrawHelper.cpp ../../../Src/Emulator.cpp ../../../Src/TextureLoader.cpp
 
 LOCAL_STATIC_LIBRARIES	:= vrsound vrmodel vrlocale vrgui vrappframework libovrkernel freetype gearboy
 LOCAL_SHARED_LIBRARIES	:= vrapi
