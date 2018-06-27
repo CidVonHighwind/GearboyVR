@@ -139,7 +139,7 @@ class MenuList : public MenuItem {
     Width = width;
     Height = height;
 
-    listItemSize = (font.FontSize + 11);
+    listItemSize = (font.FontSize + 9);
     Font = font;
     RomList = romList;
 

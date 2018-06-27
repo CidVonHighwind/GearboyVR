@@ -6,6 +6,7 @@ using namespace OVR;
 #define STR_VERSION "ver.1.1"
 
 #define HEADER_HEIGHT 75
+#define BOTTOM_HEIGHT 32
 #define menuWidth 640
 #define menuHeight 576
 
@@ -62,11 +63,12 @@ const ovrJava *java;
 jclass clsData;
 jmethodID getVal;
 
-int batteryLevel, batter_string_width;
+int batteryLevel, batter_string_width, time_string_width;
 std::string time_string, battery_string;
 
 Vector4f MenuBackgroundColor{0.03f, 0.036f, 0.06f, 0.99f};
 Vector4f MenuBackgroundOverlayColor{0.0f, 0.0f, 0.0f, 0.25f};
+Vector4f MenuBackgroundOverlayColorLight{0.0f, 0.0f, 0.0f, 0.15f};
 
 Vector4f BatteryColor{1.0f, 1.0f, 1.0f, 1.0f};
 Vector4f BatteryBackgroundColor{0.15f, 0.15f, 0.15f, 1.0f};
@@ -81,7 +83,8 @@ GLuint textureIdMenu, textureHeaderIconId, textureGbIconId, textureGbcIconId, te
     textureUpDownIconId, textureResetIconId, textureSaveSlotIconId, textureLoadRomIconId,
     textureBackIconId, textureMoveIconId, textureDistanceIconId, textureResetViewIconId,
     textureScaleIconId, textureMappingIconId, texturePaletteIconId, textureButtonAIconId,
-    textureButtonBIconId, textureFollowHeadIconId, textureDMGIconId, textureExitIconId;
+    textureButtonBIconId, textureButtonXIconId, textureButtonYIconId, textureFollowHeadIconId,
+    textureDMGIconId, textureExitIconId;
 
 template <typename T>
 std::string to_string(T value) {
@@ -93,9 +96,10 @@ std::string to_string(T value) {
 bool isTransitioning;
 int transitionDir, transitionMoveDir = 1;
 float transitionState = 1;
-Menu *currentMenu, *nextMenu;
-Menu romSelectionMenu, mainMenu, settingsMenu, moveMenu, buttonMapMenu;
+Menu *currentMenu, *nextMenu, *currentBottomBar;
+Menu romSelectionMenu, mainMenu, settingsMenu, moveMenu, buttonMapMenu, bottomBar;
 
+MenuButton *backHelp, *menuHelp, *selectHelp;
 MenuList *romList;
 MenuLabel *emptySlotLabel;
 
@@ -155,8 +159,8 @@ void MenuList::DrawTexture(float offsetX, float transparency) {
   GLfloat recPosY = (scrollbarHeight - recHeight) * sliderPercentage;
 
   // slider background
-  DrawHelper::DrawTexture(textureWhiteId, PosX + offsetX + 2, PosY, scrollbarWidth - 4,
-                          scrollbarHeight, MenuBackgroundOverlayColor, transparency);
+  DrawHelper::DrawTexture(textureWhiteId, PosX + offsetX + 2, PosY + 2, scrollbarWidth - 4,
+                          scrollbarHeight - 4, MenuBackgroundOverlayColor, transparency);
   // slider
   DrawHelper::DrawTexture(textureWhiteId, PosX + offsetX, PosY + recPosY, scrollbarWidth, recHeight,
                           sliderColor, transparency);
@@ -275,6 +279,8 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
     texturePaletteIconId = TextureLoader::Load(app, "apk:///assets/palette_icon.dds");
     textureButtonAIconId = TextureLoader::Load(app, "apk:///assets/button_a_icon.dds");
     textureButtonBIconId = TextureLoader::Load(app, "apk:///assets/button_b_icon.dds");
+    textureButtonXIconId = TextureLoader::Load(app, "apk:///assets/button_x_icon.dds");
+    textureButtonYIconId = TextureLoader::Load(app, "apk:///assets/button_y_icon.dds");
     textureFollowHeadIconId = TextureLoader::Load(app, "apk:///assets/follow_head_icon.dds");
     textureDMGIconId = TextureLoader::Load(app, "apk:///assets/force_dmg_icon.dds");
     textureExitIconId = TextureLoader::Load(app, "apk:///assets/exit_icon.dds");
@@ -471,6 +477,8 @@ void GetTimeString(std::string &timeString) {
   timeString.append(":");
   if (tmv.tm_min < 10) timeString.append("0");
   timeString.append(to_string(tmv.tm_min));
+
+  time_string_width = FontManager::GetWidth(fontList, timeString);
 }
 
 void GetBattryString(std::string &batteryString) {
@@ -479,7 +487,7 @@ void GetBattryString(std::string &batteryString) {
   batteryString.append(to_string(batteryLevel));
   batteryString.append("%");
 
-  batter_string_width = FontManager::GetWidth(fontSmall, batteryString);
+  batter_string_width = FontManager::GetWidth(fontList, batteryString);
 }
 
 void UpdateMenu(const ovrFrameInput &vrFrame) {
@@ -512,6 +520,10 @@ void DrawMenu() {
     for (uint i = 0; i < nextMenu->MenuItems.size(); i++)
       nextMenu->MenuItems[i]->DrawText(transitionMoveDir * (1 - progress) * 100, progress);
 
+  // bottom bar
+  for (uint i = 0; i < currentBottomBar->MenuItems.size(); i++)
+    currentBottomBar->MenuItems[i]->DrawText(0, 1);
+
   FontManager::Close();
 
   // draw the menu textures
@@ -522,6 +534,9 @@ void DrawMenu() {
   if (isTransitioning)
     for (uint i = 0; i < nextMenu->MenuItems.size(); i++)
       nextMenu->MenuItems[i]->DrawTexture(transitionMoveDir * (1 - progress) * 100, progress);
+
+  for (uint i = 0; i < currentBottomBar->MenuItems.size(); i++)
+    currentBottomBar->MenuItems[i]->DrawTexture(0, 1);
 }
 
 void DrawGUI() {
@@ -544,6 +559,9 @@ void DrawGUI() {
   // header
   DrawHelper::DrawTexture(textureWhiteId, 0, 0, menuWidth, HEADER_HEIGHT,
                           MenuBackgroundOverlayColor, 1);
+  DrawHelper::DrawTexture(textureWhiteId, 0, menuHeight - BOTTOM_HEIGHT, menuWidth, BOTTOM_HEIGHT,
+                          MenuBackgroundOverlayColorLight, 1);
+
   // icon
   DrawHelper::DrawTexture(textureHeaderIconId, 0, 0, 75, 75, headerColor, 1);
 
@@ -551,27 +569,29 @@ void DrawGUI() {
   FontManager::RenderText(fontHeader, STR_HEADER, 75, 0.0f, 1.0f, headerColor, 1);
 
   // update the battery string
+  int batteryWidth = 10;
+  int maxHeight = 17;
+  int dist = 15;
   GetBattryString(battery_string);
-  FontManager::RenderText(fontSmall, battery_string,
-                          menuWidth - strVersionWidth - 110.0f - batter_string_width,
-                          HEADER_HEIGHT - 21, 1.0f, textColorVersion, 1);
+  FontManager::RenderText(fontList, battery_string,
+                          menuWidth - batter_string_width - batteryWidth - 5 - dist, dist, 1.0f,
+                          textColorVersion, 1);
 
   // update the time string
   GetTimeString(time_string);
-  FontManager::RenderText(fontSmall, time_string, menuWidth - strVersionWidth - 70.0f,
-                          HEADER_HEIGHT - 21, 1.0f, textColorVersion, 1);
+  FontManager::RenderText(fontList, time_string, menuWidth - time_string_width - dist,
+                          HEADER_HEIGHT - dist - fontList.FontSize, 1.0f, textColorVersion, 1);
 
-  FontManager::RenderText(fontSmall, STR_VERSION, menuWidth - strVersionWidth - 7.0f,
-                          HEADER_HEIGHT - 21, 1.0f, textColorVersion, 1);
+  // FontManager::RenderText(fontSmall, STR_VERSION, menuWidth - strVersionWidth - 7.0f,
+  //                        HEADER_HEIGHT - 21, 1.0f, textColorVersion, 1);
   FontManager::Close();
 
   // draw battery
-  int maxHeight = 15;
-  DrawHelper::DrawTexture(textureWhiteId, menuWidth - strVersionWidth - 106.0f,
-                          HEADER_HEIGHT - maxHeight - 4, 8, maxHeight, BatteryBackgroundColor, 1);
+  DrawHelper::DrawTexture(textureWhiteId, menuWidth - batteryWidth - dist, dist + 4, batteryWidth,
+                          maxHeight, BatteryBackgroundColor, 1);
   int height = (int)(batteryLevel / 100.0 * maxHeight);
-  DrawHelper::DrawTexture(textureWhiteId, menuWidth - strVersionWidth - 106.0f,
-                          HEADER_HEIGHT - height - 4, 8, height, BatteryColor, 1);
+  DrawHelper::DrawTexture(textureWhiteId, menuWidth - batteryWidth - dist, dist + 4, batteryWidth,
+                          height, BatteryColor, 1);
 
   DrawMenu();
 
@@ -739,7 +759,7 @@ void OnClickSettingsGame(MenuItem *item) { StartTransition(&settingsMenu, 1); }
 
 void ChangePalette(MenuItem *item, int dir) {
   Emulator::ChangePalette(dir);
-  ((MenuButton *)item)->Text = "Palette: " + to_string(Emulator::selectedPalette);
+  ((MenuButton *)item)->Text = "Palette: " + to_string(Emulator::selectedPalette + 1);
 }
 
 void OnClickChangePaletteLeft(MenuItem *item) {
@@ -816,17 +836,17 @@ float ToDegree(float radian) { return (int)(180.0 / VRAPI_PI * radian * 10) / 10
 
 void MoveYaw(MenuItem *item, float dir) {
   LayerBuilder::screenYaw -= dir;
-  ((MenuButton *)item)->Text = "Yaw: " + to_string(ToDegree(LayerBuilder::screenYaw));
+  ((MenuButton *)item)->Text = "Yaw: " + to_string(ToDegree(LayerBuilder::screenYaw)) + "°";
 }
 
 void MovePitch(MenuItem *item, float dir) {
   LayerBuilder::screenPitch -= dir;
-  ((MenuButton *)item)->Text = "Pitch: " + to_string(ToDegree(LayerBuilder::screenPitch));
+  ((MenuButton *)item)->Text = "Pitch: " + to_string(ToDegree(LayerBuilder::screenPitch)) + "°";
 }
 
 void MoveRoll(MenuItem *item, float dir) {
   LayerBuilder::screenRoll -= dir;
-  ((MenuButton *)item)->Text = "Roll: " + to_string(ToDegree(LayerBuilder::screenRoll));
+  ((MenuButton *)item)->Text = "Roll: " + to_string(ToDegree(LayerBuilder::screenRoll)) + "°";
 }
 
 void ChangeDistance(MenuItem *item, float dir) {
@@ -860,6 +880,36 @@ void OnClickResetView(MenuItem *item) {
   SaveSettings();
 }
 
+void OnClickYaw(MenuItem *item){
+  LayerBuilder::screenYaw = 0;
+  MoveYaw(yawButton, 0);
+  SaveSettings();
+}
+
+void OnClickPitch(MenuItem *item){
+  LayerBuilder::screenPitch = 0;
+  MovePitch(pitchButton, 0);
+  SaveSettings();
+}
+
+void OnClickRoll(MenuItem *item){
+  LayerBuilder::screenRoll = 0;
+  MoveRoll(rollButton, 0);
+  SaveSettings();
+}
+
+void OnClickDistance(MenuItem *item){
+  LayerBuilder::radiusMenuScreen = 0.75f;
+  ChangeDistance(distanceButton, 0);
+  SaveSettings();
+}
+
+void OnClickScale(MenuItem *item){
+  LayerBuilder::screenSize = 1.0f;
+  ChangeScale(scaleButton, 0);
+  SaveSettings();
+}
+
 void MoveAButtonMapping(MenuItem *item, int dir) {
   Emulator::ChangeButtonMapping(0, dir);
   ((MenuButton *)item)->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[0]];
@@ -876,6 +926,8 @@ void MoveMenuButtonMapping(MenuItem *item, int dir) {
 
   button_mapping_menu = MapButtons[button_mapping_menu_index];
   ((MenuButton *)item)->Text = "menu mapped to: " + MapButtonStr[button_mapping_menu_index];
+
+  menuHelp->IconId = button_mapping_menu_index == 2 ? textureButtonXIconId : textureButtonYIconId;
 }
 
 void OnClickChangeMenuButtonLeft(MenuItem *item) { MoveMenuButtonMapping(item, 1); }
@@ -933,11 +985,24 @@ void OvrApp::SetUpMenu() {
 
   romSelectionMenu.CurrentSelection = 0;
   romList = new MenuList(OnClickRom, romFileList, fontList, 10, HEADER_HEIGHT + 10, menuWidth - 20,
-                         (menuHeight - HEADER_HEIGHT - 20));
+                         (menuHeight - HEADER_HEIGHT - BOTTOM_HEIGHT - 20));
   romList->CurrentSelection = romSelection;
   romSelectionMenu.MenuItems.push_back(romList);
   romSelectionMenu.BackPress = OnBackPressedRomList;
   romSelectionMenu.Init();
+
+  menuHelp = new MenuButton(
+      button_mapping_menu_index == 2 ? textureButtonXIconId : textureButtonYIconId, "Close Menu",
+      15, menuHeight - fontMenu.FontSize - 8, nullptr, nullptr, nullptr);
+  backHelp = new MenuButton(textureButtonBIconId, "Back", menuWidth - 210,
+                            menuHeight - fontMenu.FontSize - 8, nullptr, nullptr, nullptr);
+  selectHelp = new MenuButton(textureButtonAIconId, "Select", menuWidth - 110,
+                              menuHeight - fontMenu.FontSize - 8, nullptr, nullptr, nullptr);
+
+  bottomBar.MenuItems.push_back(backHelp);
+  bottomBar.MenuItems.push_back(selectHelp);
+  bottomBar.MenuItems.push_back(menuHelp);
+  currentBottomBar = &bottomBar;
 
   // main menu page
   int posX = 20;
@@ -975,6 +1040,7 @@ void OvrApp::SetUpMenu() {
   emptySlotLabel = new MenuLabel(fontSlot, "--Empty Slot--", menuWidth - 320 - 20,
                                  HEADER_HEIGHT + 20, 320, 288, {1.0f, 1.0f, 1.0f, 1.0f});
   mainMenu.MenuItems.push_back(emptySlotLabel);
+
   mainMenu.Init();
   mainMenu.BackPress = OnClickBackMainMenu;
 
@@ -1024,7 +1090,7 @@ void OvrApp::SetUpMenu() {
   MenuButton *menuButton =
       new MenuButton(textureLoadRomIconId, "", posX, posY, OnClickChangeMenuButtonRight,
                      OnClickChangeMenuButtonLeft, OnClickChangeMenuButtonRight);
-  MenuButton *aButton = new MenuButton(textureButtonAIconId, "", posX, posY += menuItemSize,
+  MenuButton *aButton = new MenuButton(textureButtonAIconId, "", posX, posY += menuItemSize + 5,
                                        OnClickChangeAButtonRight, OnClickChangeAButtonLeft,
                                        OnClickChangeAButtonRight);
   MenuButton *bButton = new MenuButton(textureButtonBIconId, "", posX, posY += menuItemSize,
@@ -1045,19 +1111,19 @@ void OvrApp::SetUpMenu() {
 
   // move menu page
   posY = HEADER_HEIGHT + 20;
-  yawButton = new MenuButton(texuterLeftRightIconId, "", posX, posY, nullptr,
+  yawButton = new MenuButton(texuterLeftRightIconId, "", posX, posY, OnClickYaw,
                              OnClickMoveScreenYawLeft, OnClickMoveScreenYawRight);
   yawButton->ScrollTimeH = 1;
-  pitchButton = new MenuButton(textureUpDownIconId, "", posX, posY += menuItemSize, nullptr,
+  pitchButton = new MenuButton(textureUpDownIconId, "", posX, posY += menuItemSize, OnClickPitch,
                                OnClickMoveScreenPitchLeft, OnClickMoveScreenPitchRight);
   pitchButton->ScrollTimeH = 1;
-  rollButton = new MenuButton(textureResetIconId, "", posX, posY += menuItemSize, nullptr,
+  rollButton = new MenuButton(textureResetIconId, "", posX, posY += menuItemSize, OnClickRoll,
                               OnClickMoveScreenRollLeft, OnClickMoveScreenRollRight);
   rollButton->ScrollTimeH = 1;
-  distanceButton = new MenuButton(textureDistanceIconId, "", posX, posY += menuItemSize, nullptr,
+  distanceButton = new MenuButton(textureDistanceIconId, "", posX, posY += menuItemSize, OnClickDistance,
                                   OnClickMoveScreenDistanceLeft, OnClickMoveScreenDistanceRight);
   distanceButton->ScrollTimeH = 1;
-  scaleButton = new MenuButton(textureScaleIconId, "", posX, posY += menuItemSize, nullptr,
+  scaleButton = new MenuButton(textureScaleIconId, "", posX, posY += menuItemSize, OnClickScale,
                                OnClickMoveScreenScaleLeft, OnClickMoveScreenScaleRight);
   scaleButton->ScrollTimeH = 1;
 

@@ -86,7 +86,7 @@ void LoadFont(RenderFont *font, const char *filePath, uint fontSize) {
   int posX = 1;
   int posY = 1;
 
-  for (GLubyte c = 0; c < 128; c++) {
+  for (GLubyte c = 0; c < 192; c++) {
     // Load character glyph
     if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
       std::cout << "ERROR::FREETYTPE: Failed to load Glyph" << std::endl;
