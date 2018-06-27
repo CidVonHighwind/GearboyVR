@@ -16,5 +16,5 @@ ovrLayerCylinder2 BuildCylinderLayer(ovrTextureSwapChain *cylinderSwapChain, con
 
 ovrLayerCylinder2 BuildSettingsCylinderLayer(ovrTextureSwapChain *cylinderSwapChain,
                                              const int textureWidth, const int textureHeight,
-                                             const ovrTracking2 *tracking, bool followHead);
+                                             const ovrTracking2 *tracking, bool followHead, float offsetY);
 }  // namespace LayerBuilder

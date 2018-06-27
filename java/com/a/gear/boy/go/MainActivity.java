@@ -47,7 +47,7 @@ public class MainActivity extends VrActivity {
         }
     }
 
-    public int getInt(){
+    public int GetBatteryLevel(){
         Intent batteryIntent = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
 
         int level = batteryIntent.getIntExtra(BatteryManager.EXTRA_LEVEL, 0);

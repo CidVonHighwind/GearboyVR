@@ -53,39 +53,20 @@ void UpdateDirection(const ovrFrameInput &vrFrame) {
   currentfQuat = {currentQuat.x, currentQuat.y, currentQuat.z, currentQuat.w};
 }
 
-// Assumes landscape cylinder shape.
-static ovrMatrix4f CylinderModelMatrix(const int texWidth, const int texHeight,
-                                       const ovrVector3f translation, const float rotateYaw,
-                                       const float rotatePitch, const float radius,
-                                       const float density) {
-  const ovrMatrix4f scaleMatrix =
-      ovrMatrix4f_CreateScale(radius, radius * (float)texHeight * VRAPI_PI / density, radius);
-
-  const ovrMatrix4f transMatrix =
-      ovrMatrix4f_CreateTranslation(translation.x, translation.y, translation.z);
-  const ovrMatrix4f rotXMatrix = ovrMatrix4f_CreateRotation(rotateYaw, 0.0f, 0.0f);
-  const ovrMatrix4f rotYMatrix = ovrMatrix4f_CreateRotation(0.0f, rotatePitch, 0.0f);
-
-  const ovrMatrix4f m0 = ovrMatrix4f_Multiply(&transMatrix, &scaleMatrix);
-  const ovrMatrix4f m1 = ovrMatrix4f_Multiply(&rotXMatrix, &m0);
-  const ovrMatrix4f m2 = ovrMatrix4f_Multiply(&rotYMatrix, &m1);
-
-  return m2;
-}
-
-static ovrMatrix4f CylinderModelMatrix2(const int texHeight, const ovrVector3f translation,
-                                        const float radius, const ovrQuatf *q,
-                                        const float density) {
-  const ovrMatrix4f scaleMatrix =
-      ovrMatrix4f_CreateScale(radius, radius * (float)texHeight * VRAPI_PI / density, radius);
-
-  const ovrMatrix4f transMatrix =
-      ovrMatrix4f_CreateTranslation(translation.x, translation.y, translation.z);
-
-  const ovrMatrix4f rotXMatrix = ovrMatrix4f_CreateRotation(screenPitch, 0.0f, 0.0f);
+static ovrMatrix4f CylinderModelMatrix(const int texHeight, const ovrVector3f translation,
+                                       const float radius, const ovrQuatf *q, const float density,
+                                       const float offsetY) {
+  const ovrMatrix4f rotXMatrix = ovrMatrix4f_CreateRotation(screenPitch + offsetY, 0.0f, 0.0f);
   const ovrMatrix4f rotYMatrix = ovrMatrix4f_CreateRotation(0.0f, screenYaw, 0.0f);
   const ovrMatrix4f rotZMatrix = ovrMatrix4f_CreateRotation(0.0f, 0.0f, screenRoll);
 
+  const ovrMatrix4f scaleMatrix =
+      ovrMatrix4f_CreateScale(radius, radius * (float)texHeight * VRAPI_PI / density, radius);
+
+  const ovrMatrix4f transMatrix =
+      ovrMatrix4f_CreateTranslation(translation.x, translation.y, translation.z);
+
+  // fixed
   if (q == nullptr) {
     const ovrMatrix4f m0 = ovrMatrix4f_Multiply(&rotYMatrix, &rotXMatrix);
     const ovrMatrix4f m1 = ovrMatrix4f_Multiply(&m0, &rotZMatrix);
@@ -94,7 +75,9 @@ static ovrMatrix4f CylinderModelMatrix2(const int texHeight, const ovrVector3f t
     return m3;
   }
 
+  // follow head
   const ovrMatrix4f rotOneMatrix = ovrMatrix4f_CreateFromQuaternion(q);
+
   const ovrMatrix4f m0 = ovrMatrix4f_Multiply(&rotYMatrix, &rotXMatrix);
   const ovrMatrix4f m1 = ovrMatrix4f_Multiply(&m0, &rotZMatrix);
   const ovrMatrix4f m2 = ovrMatrix4f_Multiply(&m1, &scaleMatrix);
@@ -120,8 +103,8 @@ ovrLayerCylinder2 BuildCylinderLayer(ovrTextureSwapChain *cylinderSwapChain, con
   const ovrVector3f translation = tracking->HeadPose.Pose.Position;
 
   ovrMatrix4f cylinderTransform =
-      CylinderModelMatrix2(textureHeight, translation, radiusMenuScreen + radiusMenuScreen * 0.01f,
-                           followHead ? &currentfQuat : nullptr, density);
+      CylinderModelMatrix(textureHeight, translation, radiusMenuScreen + radiusMenuScreen * 0.01f,
+                          followHead ? &currentfQuat : nullptr, density, 0);
 
   const float circScale = density * 0.5f / textureWidth;
   const float circBias = -circScale * (0.5f * (1.0f - 1.0f / circScale));
@@ -155,7 +138,8 @@ ovrLayerCylinder2 BuildCylinderLayer(ovrTextureSwapChain *cylinderSwapChain, con
 
 ovrLayerCylinder2 BuildSettingsCylinderLayer(ovrTextureSwapChain *cylinderSwapChain,
                                              const int textureWidth, const int textureHeight,
-                                             const ovrTracking2 *tracking, bool followHead) {
+                                             const ovrTracking2 *tracking, bool followHead,
+                                             float offsetY) {
   ovrLayerCylinder2 layer = vrapi_DefaultLayerCylinder2();
 
   const float fadeLevel = 1.0f;
@@ -174,8 +158,9 @@ ovrLayerCylinder2 BuildSettingsCylinderLayer(ovrTextureSwapChain *cylinderSwapCh
       tracking->HeadPose.Pose.Position;  // {0.0f, 0.0f, 0.0f}; // tracking->HeadPose.Pose.Position;
   // maybe use vrapi_GetTransformFromPose instead
 
-  ovrMatrix4f cylinderTransform = CylinderModelMatrix2(
-      textureHeight, _translation, radiusMenuScreen, followHead ? &currentfQuat : nullptr, density);
+  ovrMatrix4f cylinderTransform =
+      CylinderModelMatrix(textureHeight, _translation, radiusMenuScreen,
+                          followHead ? &currentfQuat : nullptr, density, (1 - offsetY) * 0.025f);
 
   const float circScale = density * 0.5f / textureWidth;
   const float circBias = -circScale * (0.5f * (1.0f - 1.0f / circScale));

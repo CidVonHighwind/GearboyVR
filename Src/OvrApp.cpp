@@ -2,32 +2,25 @@
 
 using namespace OVR;
 
+#define STR_HEADER "GearboyVR"
+#define STR_VERSION "ver.1.1"
+
+#define HEADER_HEIGHT 75
 #define menuWidth 640
 #define menuHeight 576
 
-#define HEADER_HEIGHT 75
-
-#define SCROLL_DELAY 15
-#define SCROLL_TIME 5
-
-#define SCROLL_DELAY_MOVE 10
-#define SCROLL_TIME_MOVE 1
-
-#define MAX_SAVESLOTS 10
-#define STR_VERSION "ver.1.0"
+#define MAX_SAVE_SLOTS 10
 
 #define MoveSpeed 0.00390625f
 #define ZoomSpeed 0.03125f
-#define MIN_RADIUS 0.5f
-#define MAX_RADIUS 5.5f
+#define MIN_DISTANCE 0.5f
+#define MAX_DISTANCE 5.5f
 
 #define GL(func) func;
 
 const int SAVE_FILE_VERSION = 3;
 
-std::vector<Emulator::Rom> *romFiles = new std::vector<Emulator::Rom>();
-
-GlProgram glprog;
+std::vector<Emulator::Rom> *romFileList = new std::vector<Emulator::Rom>();
 
 int menuItemSize = 10;
 bool menuOpen = true;
@@ -40,21 +33,15 @@ bool showExitDialog = false;
 int romSelection = 0;
 
 float transitionPercentage = 1.0f;
+unsigned int lastButtonState;
 
 std::string strForceDMG[] = {"Force DMG: Yes", "Force DMG: No"};
 std::string strMove[] = {"Follow Head: Yes", "Follow Head: No"};
-std::string strHeader = "GearboyVR";
-std::string strNoSave = "--Empty Slot--";
-std::string strMoveMenu = "<- Move Screen ->";
-int strMoveMenuTextWidth;
-int strNoSaveWidth;
 
 int button_mapping_menu;
 int button_mapping_menu_index = 4;
 std::string MapButtonStr[] = {"A", "B", "X", "Y"};
 int MapButtons[] = {BUTTON_A, BUTTON_B, BUTTON_X, BUTTON_Y};
-
-unsigned int lastButtonState;
 
 const char *appDir;
 const char *storageDir;
@@ -68,8 +55,6 @@ ovrVector4f textSelectionColor = {0.15f, 0.8f, 0.6f, 1.0f};
 ovrVector4f textColorVersion = {0.8f, 0.8f, 0.8f, 0.8f};
 ovrVector4f sliderColor = {0.8f, 0.8f, 0.8f, 0.8f};
 ovrVector4f headerColor = textColor;
-
-FontManager::RenderFont fontHeader, fontMenu, fontList, fontSlot, fontSmall;
 
 int strVersionWidth;
 const ovrJava *java;
@@ -89,13 +74,14 @@ Vector4f BatteryBackgroundColor{0.15f, 0.15f, 0.15f, 1.0f};
 ovrTextureSwapChain *MenuSwapChain;
 GLuint MenuFrameBuffer = 0;
 
+FontManager::RenderFont fontHeader, fontMenu, fontList, fontSlot, fontSmall;
+
 GLuint textureIdMenu, textureHeaderIconId, textureGbIconId, textureGbcIconId, textureSaveIconId,
-    textureLoadIconId, textureWhiteId, texturePlayId, textureResumeId, textureSettingsId,
-    texuterLeftRightIconId, textureUpDownIconId, textureResetIconId, textureSaveSlotIconId,
-    textureLoadRomIconId, textureBackIconId, textureMoveIconId, textureDistanceIconId,
-    textureResetViewIconId, textureScaleIconId, textureMappingIconId, texturePaletteIconId,
-    textureButtonAIconId, textureButtonBIconId, textureFollowHeadIconId, textureDMGIconId,
-    textureExitIconId;
+    textureLoadIconId, textureWhiteId, textureResumeId, textureSettingsId, texuterLeftRightIconId,
+    textureUpDownIconId, textureResetIconId, textureSaveSlotIconId, textureLoadRomIconId,
+    textureBackIconId, textureMoveIconId, textureDistanceIconId, textureResetViewIconId,
+    textureScaleIconId, textureMappingIconId, texturePaletteIconId, textureButtonAIconId,
+    textureButtonBIconId, textureFollowHeadIconId, textureDMGIconId, textureExitIconId;
 
 template <typename T>
 std::string to_string(T value) {
@@ -113,6 +99,7 @@ Menu romSelectionMenu, mainMenu, settingsMenu, moveMenu, buttonMapMenu;
 MenuList *romList;
 MenuLabel *emptySlotLabel;
 
+MenuButton *slotButton;
 MenuButton *yawButton;
 MenuButton *pitchButton;
 MenuButton *rollButton;
@@ -302,15 +289,21 @@ GLuint Load_Texture(const void *Data, std::size_t Size) {
 
   return TextureName;
 }
-ovrSettings *OVR_Settings;
+
+GLuint Load_Texture(App *app, const char *path) {
+  static MemBufferT<uint8_t> buffer;
+
+  if (app->GetFileSys().ReadFile(path, buffer))
+    return Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+  return 0;
+}
+
 void OvrApp::Configure(ovrSettings &settings) {
   settings.CpuLevel = 0;
   settings.GpuLevel = 0;
 
   settings.RenderMode = RENDERMODE_MULTIVIEW;
   settings.UseSrgbFramebuffer = true;
-
-  OVR_Settings = &settings;
 }
 
 int UpdateBatteryLevel() {
@@ -463,7 +456,7 @@ void ScanDirectory() {
           newRom.isGbc = (strFilename.find(".gbc") != std::string::npos ||
                           strFilename.find(".cgb") != std::string::npos);
 
-          romFiles->push_back(newRom);
+          romFileList->push_back(newRom);
 
           LOG("found rom: %s %s %s", newRom.RomName.c_str(), newRom.FullPath.c_str(),
               newRom.SavePath.c_str());
@@ -472,7 +465,7 @@ void ScanDirectory() {
     }
     closedir(dir);
     LOG("sort list");
-    std::sort(romFiles->begin(), romFiles->end(), Emulator::SortByRomName);
+    std::sort(romFileList->begin(), romFileList->end(), Emulator::SortByRomName);
     LOG("finished sorting list");
   } else {
     LOG("could not open folder");
@@ -494,62 +487,30 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
     FontManager::LoadFont(&fontSlot, const_cast<char *>("/system/fonts/Roboto-Light.ttf"), 26);
     FontManager::CloseFontLoader();
 
-    // load icons
-    MemBufferT<uint8_t> buffer;
-    if (app->GetFileSys().ReadFile("apk:///assets/header_icon.dds", buffer))
-      textureHeaderIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/gb_cartridge.dds", buffer))
-      textureGbIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/gbc_cartridge.dds", buffer))
-      textureGbcIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/save_icon.dds", buffer))
-      textureSaveIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/load_icon.dds", buffer))
-      textureLoadIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/play_icon.dds", buffer))
-      texturePlayId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/resume_icon.dds", buffer))
-      textureResumeId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/settings_icon.dds", buffer))
-      textureSettingsId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-
-    if (app->GetFileSys().ReadFile("apk:///assets/leftright_icon.dds", buffer))
-      texuterLeftRightIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/updown_icon.dds", buffer))
-      textureUpDownIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-
-    if (app->GetFileSys().ReadFile("apk:///assets/reset_icon.dds", buffer))
-      textureResetIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/save_slot_icon.dds", buffer))
-      textureSaveSlotIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/rom_list_icon.dds", buffer))
-      textureLoadRomIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-
-    if (app->GetFileSys().ReadFile("apk:///assets/move_icon.dds", buffer))
-      textureMoveIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/back_icon.dds", buffer))
-      textureBackIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/distance_icon.dds", buffer))
-      textureDistanceIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/reset_view_icon.dds", buffer))
-      textureResetViewIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/scale_icon.dds", buffer))
-      textureScaleIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/mapping_icon.dds", buffer))
-      textureMappingIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-
-    if (app->GetFileSys().ReadFile("apk:///assets/palette_icon.dds", buffer))
-      texturePaletteIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/button_a_icon.dds", buffer))
-      textureButtonAIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/button_b_icon.dds", buffer))
-      textureButtonBIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/follow_head_icon.dds", buffer))
-      textureFollowHeadIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/force_dmg_icon.dds", buffer))
-      textureDMGIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
-    if (app->GetFileSys().ReadFile("apk:///assets/exit_icon.dds", buffer))
-      textureExitIconId = Load_Texture(buffer, static_cast<int>(buffer.GetSize()));
+    textureHeaderIconId = Load_Texture(app, "apk:///assets/header_icon.dds");
+    textureGbIconId = Load_Texture(app, "apk:///assets/gb_cartridge.dds");
+    textureGbcIconId = Load_Texture(app, "apk:///assets/gbc_cartridge.dds");
+    textureSaveIconId = Load_Texture(app, "apk:///assets/save_icon.dds");
+    textureLoadIconId = Load_Texture(app, "apk:///assets/load_icon.dds");
+    textureResumeId = Load_Texture(app, "apk:///assets/resume_icon.dds");
+    textureSettingsId = Load_Texture(app, "apk:///assets/settings_icon.dds");
+    texuterLeftRightIconId = Load_Texture(app, "apk:///assets/leftright_icon.dds");
+    textureUpDownIconId = Load_Texture(app, "apk:///assets/updown_icon.dds");
+    textureResetIconId = Load_Texture(app, "apk:///assets/reset_icon.dds");
+    textureSaveSlotIconId = Load_Texture(app, "apk:///assets/save_slot_icon.dds");
+    textureLoadRomIconId = Load_Texture(app, "apk:///assets/rom_list_icon.dds");
+    textureMoveIconId = Load_Texture(app, "apk:///assets/move_icon.dds");
+    textureBackIconId = Load_Texture(app, "apk:///assets/back_icon.dds");
+    textureDistanceIconId = Load_Texture(app, "apk:///assets/distance_icon.dds");
+    textureResetViewIconId = Load_Texture(app, "apk:///assets/reset_view_icon.dds");
+    textureScaleIconId = Load_Texture(app, "apk:///assets/scale_icon.dds");
+    textureMappingIconId = Load_Texture(app, "apk:///assets/mapping_icon.dds");
+    texturePaletteIconId = Load_Texture(app, "apk:///assets/palette_icon.dds");
+    textureButtonAIconId = Load_Texture(app, "apk:///assets/button_a_icon.dds");
+    textureButtonBIconId = Load_Texture(app, "apk:///assets/button_b_icon.dds");
+    textureFollowHeadIconId = Load_Texture(app, "apk:///assets/follow_head_icon.dds");
+    textureDMGIconId = Load_Texture(app, "apk:///assets/force_dmg_icon.dds");
+    textureExitIconId = Load_Texture(app, "apk:///assets/exit_icon.dds");
 
     CreateWhiteImage();
 
@@ -576,7 +537,7 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
     Locale = ovrLocale::Create(*java->Env, java->ActivityObject, "default");
 
     clsData = java->Env->GetObjectClass(java->ActivityObject);
-    getVal = java->Env->GetMethodID(clsData, "getInt", "()I");
+    getVal = java->Env->GetMethodID(clsData, "GetBatteryLevel", "()I");
 
     String fontName;
     GetLocale().GetString("@string/font_name", "efigs.fnt", fontName);
@@ -694,7 +655,7 @@ void DrawGUI() {
   DrawHelper::DrawTexture(textureHeaderIconId, 0, 0, 75, 75, headerColor, 1);
 
   FontManager::Begin();
-  FontManager::RenderText(fontHeader, strHeader, 75, 0.0f, 1.0f, headerColor, 1);
+  FontManager::RenderText(fontHeader, STR_HEADER, 75, 0.0f, 1.0f, headerColor, 1);
 
   // update the battery string
   GetBattryString(battery_string);
@@ -736,12 +697,12 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
   }
 
   if (!menuOpen) {
-    if (transitionPercentage > 0) transitionPercentage -= 0.25f;
+    if (transitionPercentage > 0) transitionPercentage -= 0.2f;
     if (transitionPercentage < 0) transitionPercentage = 0;
 
     Emulator::Update(vrFrame, lastButtonState);
   } else {
-    if (transitionPercentage < 1) transitionPercentage += 0.25f;
+    if (transitionPercentage < 1) transitionPercentage += 0.2f;
     if (transitionPercentage > 1) transitionPercentage = 1;
 
     UpdateMenu(vrFrame);
@@ -824,13 +785,15 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
     // menu layer
     if (menuOpen) DrawGUI();
 
+    float transitionP = sinf((transitionPercentage)*MATH_FLOAT_PIOVER2);
+
     res.Layers[res.LayerCount].Cylinder = LayerBuilder::BuildSettingsCylinderLayer(
-        MenuSwapChain, menuWidth, menuHeight, &vrFrame.Tracking, followHead);
+        MenuSwapChain, menuWidth, menuHeight, &vrFrame.Tracking, followHead, transitionP);
 
     res.Layers[res.LayerCount].Cylinder.Header.Flags |=
         VRAPI_FRAME_LAYER_FLAG_CHROMATIC_ABERRATION_CORRECTION;
-    res.Layers[res.LayerCount].Cylinder.Header.ColorScale = {
-        transitionPercentage, transitionPercentage, transitionPercentage, transitionPercentage};
+    res.Layers[res.LayerCount].Cylinder.Header.ColorScale = {transitionP, transitionP, transitionP,
+                                                             transitionP};
     res.Layers[res.LayerCount].Cylinder.Header.SrcBlend = VRAPI_FRAME_LAYER_BLEND_SRC_ALPHA;
     res.Layers[res.LayerCount].Cylinder.Header.DstBlend =
         VRAPI_FRAME_LAYER_BLEND_ONE_MINUS_SRC_ALPHA;
@@ -851,24 +814,30 @@ void StartTransition(Menu *next, int dir) {
 
 void OnClickResumGame(MenuItem *item) {
   LOG("Pressed RESUME GAME");
-  menuOpen = false;
+  if (loadedRom) menuOpen = false;
 }
 
 void OnClickResetGame(MenuItem *item) {
   LOG("RESET GAME");
-  Emulator::ResetGame();
-  menuOpen = false;
+  if (loadedRom) {
+    Emulator::ResetGame();
+    menuOpen = false;
+  }
 }
 
 void OnClickSaveGame(MenuItem *item) {
   LOG("on click save game");
-  Emulator::SaveState(saveSlot);
-  menuOpen = false;
+  if (loadedRom) {
+    Emulator::SaveState(saveSlot);
+    menuOpen = false;
+  }
 }
 
 void OnClickLoadGame(MenuItem *item) {
-  Emulator::LoadState(saveSlot);
-  menuOpen = false;
+  if (loadedRom) {
+    Emulator::LoadState(saveSlot);
+    menuOpen = false;
+  }
 }
 
 void OnClickLoadRomGame(MenuItem *item) { StartTransition(&romSelectionMenu, -1); }
@@ -932,19 +901,21 @@ void OnBackPressedMove() {
   SaveSettings();
 }
 
-void OnClickSaveSlotLeft(MenuItem *item) {
-  saveSlot--;
-  if (saveSlot < 0) saveSlot = MAX_SAVESLOTS - 1;
-  ((MenuButton *)item)->Text = "Save Slot: " + to_string(saveSlot);
+void ChangeSaveSlot(MenuItem *item, int dir) {
+  saveSlot += dir;
+  if (saveSlot < 0) saveSlot = MAX_SAVE_SLOTS - 1;
+  if (saveSlot >= MAX_SAVE_SLOTS) saveSlot = 0;
   Emulator::UpdateStateImage(saveSlot);
+  ((MenuButton *)item)->Text = "Save Slot: " + to_string(saveSlot);
+}
+
+void OnClickSaveSlotLeft(MenuItem *item) {
+  ChangeSaveSlot(item, -1);
   SaveSettings();
 }
 
 void OnClickSaveSlotRight(MenuItem *item) {
-  saveSlot++;
-  if (saveSlot >= MAX_SAVESLOTS) saveSlot = 0;
-  ((MenuButton *)item)->Text = "Save Slot: " + to_string(saveSlot);
-  Emulator::UpdateStateImage(saveSlot);
+  ChangeSaveSlot(item, 1);
   SaveSettings();
 }
 
@@ -968,8 +939,8 @@ void MoveRoll(MenuItem *item, float dir) {
 void ChangeDistance(MenuItem *item, float dir) {
   LayerBuilder::radiusMenuScreen -= dir;
 
-  if (LayerBuilder::radiusMenuScreen < MIN_RADIUS) LayerBuilder::radiusMenuScreen = MIN_RADIUS;
-  if (LayerBuilder::radiusMenuScreen > MAX_RADIUS) LayerBuilder::radiusMenuScreen = MAX_RADIUS;
+  if (LayerBuilder::radiusMenuScreen < MIN_DISTANCE) LayerBuilder::radiusMenuScreen = MIN_DISTANCE;
+  if (LayerBuilder::radiusMenuScreen > MAX_DISTANCE) LayerBuilder::radiusMenuScreen = MAX_DISTANCE;
 
   ((MenuButton *)item)->Text = "Distance: " + to_string(LayerBuilder::radiusMenuScreen);
 }
@@ -1052,17 +1023,20 @@ void OnClickRom(Emulator::Rom *rom) {
   LOG("LOAD ROM");
   SaveSettings();
   saveSlot = 0;
+  ChangeSaveSlot(slotButton, 0);
   Emulator::LoadGame(rom);
   currentMenu = &mainMenu;
   menuOpen = false;
   loadedRom = true;
 }
 
-void OnClickBackMainMenu() { menuOpen = false; }
+void OnClickBackMainMenu() {
+  if (loadedRom) menuOpen = false;
+}
 
 void OvrApp::SetUpMenu() {
-  // romSelectionMenu.CurrentSelection = 0;
-  romList = new MenuList(OnClickRom, romFiles, fontList, 10, HEADER_HEIGHT + 10, menuWidth - 20,
+  romSelectionMenu.CurrentSelection = 0;
+  romList = new MenuList(OnClickRom, romFileList, fontList, 10, HEADER_HEIGHT + 10, menuWidth - 20,
                          (menuHeight - HEADER_HEIGHT - 20));
   romList->CurrentSelection = romSelection;
   romSelectionMenu.MenuItems.push_back(romList);
@@ -1072,15 +1046,15 @@ void OvrApp::SetUpMenu() {
   // main menu page
   int posX = 20;
   int posY = HEADER_HEIGHT + 20;
-  std::string strSaveSlot = "Save Slot: " + to_string(saveSlot);
   mainMenu.MenuItems.push_back(new MenuButton(textureResumeId, "Resume Game", posX, posY,
                                               OnClickResumGame, nullptr, nullptr));
   mainMenu.MenuItems.push_back(new MenuButton(textureResetIconId, "Reset Game", posX,
                                               posY += menuItemSize, OnClickResetGame, nullptr,
                                               nullptr));
-  mainMenu.MenuItems.push_back(new MenuButton(textureSaveSlotIconId, strSaveSlot, posX,
-                                              posY += menuItemSize + 10, OnClickSaveSlotRight,
-                                              OnClickSaveSlotLeft, OnClickSaveSlotRight));
+  slotButton = new MenuButton(textureSaveSlotIconId, "", posX, posY += menuItemSize + 10,
+                              OnClickSaveSlotRight, OnClickSaveSlotLeft, OnClickSaveSlotRight);
+  ChangeSaveSlot(slotButton, 0);
+  mainMenu.MenuItems.push_back(slotButton);
   mainMenu.MenuItems.push_back(new MenuButton(textureSaveIconId, "Save", posX, posY += menuItemSize,
                                               OnClickSaveGame, nullptr, nullptr));
   mainMenu.MenuItems.push_back(new MenuButton(textureLoadIconId, "Load", posX, posY += menuItemSize,
@@ -1214,8 +1188,6 @@ void OvrApp::SetUpMenu() {
   ChangeScale(scaleButton, 0);
 
   strVersionWidth = GetWidth(fontSmall, STR_VERSION);
-  strMoveMenuTextWidth = GetWidth(fontMenu, strMoveMenu);
-  strNoSaveWidth = GetWidth(fontSlot, strNoSave);
 
   currentMenu = &romSelectionMenu;
 }
