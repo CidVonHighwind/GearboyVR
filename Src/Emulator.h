@@ -29,7 +29,7 @@ struct LoadedGame {
 
 extern LoadedGame *currentGame;
 
-extern GLuint textureID, stateImageId;
+extern GLuint screenTextureId, stateImageId;
 
 extern const int CylinderWidth, CylinderHeight;
 

@@ -76,7 +76,7 @@ Vector4f BatteryBackgroundColor{0.15f, 0.15f, 0.15f, 1.0f};
 ovrTextureSwapChain *MenuSwapChain;
 GLuint MenuFrameBuffer = 0;
 
-FontManager::RenderFont fontHeader, fontMenu, fontList, fontSlot, fontSmall;
+FontManager::RenderFont fontHeader, fontBattery, fontTime, fontMenu, fontList, fontSlot, fontSmall;
 
 GLuint textureIdMenu, textureHeaderIconId, textureGbIconId, textureGbcIconId, textureSaveIconId,
     textureLoadIconId, textureWhiteId, textureResumeId, textureSettingsId, texuterLeftRightIconId,
@@ -252,6 +252,8 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
   if (intentType == INTENT_LAUNCH) {
     FontManager::Init(menuWidth, menuHeight);
     FontManager::LoadFont(&fontHeader, "/system/fonts/Roboto-Regular.ttf", 55);
+    FontManager::LoadFont(&fontBattery, "/system/fonts/Roboto-Bold.ttf", 20);
+    fontTime = fontBattery;
     FontManager::LoadFont(&fontMenu, "/system/fonts/Roboto-Light.ttf", 24);
     FontManager::LoadFont(&fontList, "/system/fonts/Roboto-Light.ttf", 20);
     FontManager::LoadFont(&fontSmall, "/system/fonts/Roboto-Light.ttf", 16);
@@ -478,7 +480,7 @@ void GetTimeString(std::string &timeString) {
   if (tmv.tm_min < 10) timeString.append("0");
   timeString.append(to_string(tmv.tm_min));
 
-  time_string_width = FontManager::GetWidth(fontList, timeString);
+  time_string_width = FontManager::GetWidth(fontTime, timeString);
 }
 
 void GetBattryString(std::string &batteryString) {
@@ -487,7 +489,7 @@ void GetBattryString(std::string &batteryString) {
   batteryString.append(to_string(batteryLevel));
   batteryString.append("%");
 
-  batter_string_width = FontManager::GetWidth(fontList, batteryString);
+  batter_string_width = FontManager::GetWidth(fontBattery, batteryString);
 }
 
 void UpdateMenu(const ovrFrameInput &vrFrame) {
@@ -573,14 +575,14 @@ void DrawGUI() {
   int maxHeight = 17;
   int dist = 15;
   GetBattryString(battery_string);
-  FontManager::RenderText(fontList, battery_string,
+  FontManager::RenderText(fontBattery, battery_string,
                           menuWidth - batter_string_width - batteryWidth - 5 - dist, dist, 1.0f,
                           textColorVersion, 1);
 
   // update the time string
   GetTimeString(time_string);
-  FontManager::RenderText(fontList, time_string, menuWidth - time_string_width - dist,
-                          HEADER_HEIGHT - dist - fontList.FontSize, 1.0f, textColorVersion, 1);
+  FontManager::RenderText(fontTime, time_string, menuWidth - time_string_width - dist,
+                          HEADER_HEIGHT - dist - fontTime.FontSize, 1.0f, textColorVersion, 1);
 
   // FontManager::RenderText(fontSmall, STR_VERSION, menuWidth - strVersionWidth - 7.0f,
   //                        HEADER_HEIGHT - 21, 1.0f, textColorVersion, 1);
@@ -685,8 +687,8 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
 
   // virtual screen layer
   res.Layers[res.LayerCount].Cylinder =
-      LayerBuilder::BuildCylinderLayer(Emulator::CylinderSwapChain, Emulator::CylinderWidth,
-                                       Emulator::CylinderHeight, &vrFrame.Tracking, followHead);
+      LayerBuilder::BuildGameCylinderLayer(Emulator::CylinderSwapChain, Emulator::CylinderWidth,
+                                           Emulator::CylinderHeight, &vrFrame.Tracking, followHead);
 
   res.Layers[res.LayerCount].Cylinder.Header.Flags |=
       VRAPI_FRAME_LAYER_FLAG_CHROMATIC_ABERRATION_CORRECTION;
@@ -1073,7 +1075,7 @@ void OvrApp::SetUpMenu() {
   settingsMenu.MenuItems.push_back(new MenuImage(textureWhiteId, menuWidth - 320 - 20 - 5,
                                                  HEADER_HEIGHT + 20 - 5, 320 + 10, 288 + 10,
                                                  MenuBackgroundOverlayColor));
-  settingsMenu.MenuItems.push_back(new MenuImage(Emulator::textureID, menuWidth - 320 - 20,
+  settingsMenu.MenuItems.push_back(new MenuImage(Emulator::screenTextureId, menuWidth - 320 - 20,
                                                  HEADER_HEIGHT + 20, 320, 288,
                                                  {1.0f, 1.0f, 1.0f, 1.0f}));
 

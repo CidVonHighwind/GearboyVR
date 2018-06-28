@@ -5,7 +5,8 @@ namespace Emulator {
 GB_Color *gearboy_frame_buf;
 GearboyCore *core;
 
-GLuint textureID, stateImageId;
+GLuint screenTextureId, gbTextureID, stateImageId;
+GLuint ScreenFramebuffer = 0;
 
 static s16 audio_buf[AUDIO_BUFFER_SIZE * 2];
 static int audio_sample_count;
@@ -16,8 +17,8 @@ std::string stateFolderPath;
 Rom *CurrentRom;
 LoadedGame *currentGame;
 
-const int CylinderWidth = 160 * 2;
-const int CylinderHeight = 144 * 2;
+const int CylinderWidth = VIDEO_WIDTH * 3;
+const int CylinderHeight = VIDEO_HEIGHT * 3;
 
 ovrTextureSwapChain *CylinderSwapChain;
 
@@ -113,8 +114,8 @@ void InitScreen() {
   CylinderSwapChain = vrapi_CreateTextureSwapChain(VRAPI_TEXTURE_TYPE_2D, VRAPI_TEXTURE_FORMAT_8888,
                                                    CylinderWidth, CylinderHeight, 1, false);
 
-  textureID = vrapi_GetTextureSwapChainHandle(CylinderSwapChain, 0);
-  glBindTexture(GL_TEXTURE_2D, textureID);
+  screenTextureId = vrapi_GetTextureSwapChainHandle(CylinderSwapChain, 0);
+  glBindTexture(GL_TEXTURE_2D, screenTextureId);
   glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, CylinderWidth, CylinderHeight, GL_RGBA, GL_UNSIGNED_BYTE,
                   NULL);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
@@ -122,6 +123,27 @@ void InitScreen() {
   GLfloat borderColor[] = {0.0f, 0.0f, 0.0f, 0.0f};
   glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
   glBindTexture(GL_TEXTURE_2D, 0);
+
+  // emulator output texture
+  glGenTextures(1, &gbTextureID);
+  glBindTexture(GL_TEXTURE_2D, gbTextureID);
+  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, VIDEO_WIDTH, VIDEO_HEIGHT, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+               NULL);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+  glBindTexture(GL_TEXTURE_2D, 0);
+
+  // create the framebuffer for the screen texture
+  glGenFramebuffers(1, &ScreenFramebuffer);
+  glBindFramebuffer(GL_FRAMEBUFFER, ScreenFramebuffer);
+  // Set "renderedTexture" as our colour attachement #0
+  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, screenTextureId, 0);
+  // Set the list of draw buffers.
+  GLenum DrawBuffers[1] = {GL_COLOR_ATTACHMENT0};
+  glDrawBuffers(1, DrawBuffers);
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
 
 void InitStateImage() {
@@ -140,6 +162,63 @@ void UpdateStateImage(int saveSlot) {
   glBindTexture(GL_TEXTURE_2D, stateImageId);
   glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VIDEO_WIDTH, VIDEO_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE,
                   Emulator::currentGame->saveStates[saveSlot].saveImage);
+  glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+// TODO: look into making this faster
+void UpdateScreen() {
+  // update the emulator texture
+  glBindTexture(GL_TEXTURE_2D, gbTextureID);
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, VIDEO_WIDTH, VIDEO_HEIGHT, GL_RGBA, GL_UNSIGNED_BYTE,
+                  gearboy_frame_buf);
+  glBindTexture(GL_TEXTURE_2D, 0);
+
+  glDisable(GL_CULL_FACE);
+  glDisable(GL_DEPTH_TEST);
+
+  glEnable(GL_BLEND);
+  glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE);
+  glBlendEquation(GL_FUNC_ADD);
+
+  // render image to the screen texture
+  glBindFramebuffer(GL_FRAMEBUFFER, ScreenFramebuffer);
+
+  glViewport(0, 0, CylinderWidth, CylinderHeight);
+  glClearColor(1.0f, 0.5f, 1.0f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
+
+  // @HACK: make DrawTexture better
+  // 640, 576 is used because it is the full size of the projection set before
+  DrawHelper::DrawTexture(gbTextureID, 0, 0, 640, 576, {1.0f, 1.0f, 1.0f, 1.0f}, 1);
+
+  glBindFramebuffer(GL_FRAMEBUFFER, 0);
+}
+
+// not used anymore
+void OldUpdateScreen() {
+  for (int y = 0; y < CylinderHeight; y++) {
+    for (int x = 0; x < CylinderWidth; x++) {
+      // needs to change for other libretro cores
+      /* texData[y * CylinderWidth + x] =
+                      (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].red <<
+         0) | (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].green << 8) |
+                      (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].blue
+         << 16) | (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].alpha <<
+         24); */
+      memcpy(&texData[y * CylinderWidth + x], &gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)],
+             4);
+    }
+  }
+
+  glBindTexture(GL_TEXTURE_2D, screenTextureId);
+  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, CylinderWidth, CylinderHeight, GL_RGBA, GL_UNSIGNED_BYTE,
+                  texData);
+
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+  GLfloat borderColor[] = {0.0f, 0.0f, 0.0f, 0.0f};
+  glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+
   glBindTexture(GL_TEXTURE_2D, 0);
 }
 
@@ -170,33 +249,6 @@ void ChangeButtonMapping(int buttonIndex, int dir) {
   if (button_mapping_index[buttonIndex] > 3) button_mapping_index[buttonIndex] = 0;
 
   button_mapping[buttonIndex] = MapButtons[button_mapping_index[buttonIndex]];
-}
-
-void UpdateScreen() {
-  for (int y = 0; y < CylinderHeight; y++) {
-    for (int x = 0; x < CylinderWidth; x++) {
-      // needs to change for other libretro cores
-      /* texData[y * CylinderWidth + x] =
-                      (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].red <<
-         0) | (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].green << 8) |
-                      (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].blue
-         << 16) | (gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)].alpha <<
-         24); */
-      memcpy(&texData[y * CylinderWidth + x], &gearboy_frame_buf[(y / 2) * VIDEO_WIDTH + (x / 2)],
-             4);
-    }
-  }
-
-  glBindTexture(GL_TEXTURE_2D, textureID);
-  glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, CylinderWidth, CylinderHeight, GL_RGBA, GL_UNSIGNED_BYTE,
-                  texData);
-
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-  GLfloat borderColor[] = {0.0f, 0.0f, 0.0f, 0.0f};
-  glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
-
-  glBindTexture(GL_TEXTURE_2D, 0);
 }
 
 void LoadRom(std::string path) {

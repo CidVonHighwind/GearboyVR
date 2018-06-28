@@ -86,9 +86,11 @@ static ovrMatrix4f CylinderModelMatrix(const int texHeight, const ovrVector3f tr
   return m4;
 }
 
-ovrLayerCylinder2 BuildCylinderLayer(ovrTextureSwapChain *cylinderSwapChain, const int textureWidth,
-                                     const int textureHeight, const ovrTracking2 *tracking,
-                                     bool followHead) {
+ovrLayerCylinder2 BuildGameCylinderLayer(ovrTextureSwapChain *cylinderSwapChain,
+                                         const int textureWidth,
+                                         const int textureHeight,
+                                         const ovrTracking2 *tracking,
+                                         bool followHead) {
   ovrLayerCylinder2 layer = vrapi_DefaultLayerCylinder2();
 
   const float fadeLevel = 1.0f;
@@ -99,7 +101,8 @@ ovrLayerCylinder2 BuildCylinderLayer(ovrTextureSwapChain *cylinderSwapChain, con
 
   layer.HeadPose = tracking->HeadPose;
 
-  const float density = 3250.0f / screenSize;
+  // x2: 3250.0f
+  const float density = 4875 / screenSize;
   const ovrVector3f translation = tracking->HeadPose.Pose.Position;
 
   ovrMatrix4f cylinderTransform =
