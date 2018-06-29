@@ -83,6 +83,7 @@ static ovrMatrix4f CylinderModelMatrix(const int texHeight, const ovrVector3f tr
   const ovrMatrix4f m2 = ovrMatrix4f_Multiply(&m1, &scaleMatrix);
   const ovrMatrix4f m3 = ovrMatrix4f_Multiply(&rotOneMatrix, &m2);
   const ovrMatrix4f m4 = ovrMatrix4f_Multiply(&transMatrix, &m3);
+
   return m4;
 }
 

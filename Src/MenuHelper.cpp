@@ -1,14 +1,22 @@
 #include "MenuHelper.h"
 
+int SelectButton = BUTTON_A;
+int BackButton = BUTTON_B;
+bool SwappSelectBackButton = false;
+
 ovrVector4f textColor = {0.9f, 0.9f, 0.9f, 0.9f};
 ovrVector4f textSelectionColor = {0.15f, 0.8f, 0.6f, 0.8f};
 
 void MenuLabel::DrawText(float offsetX, float transparency) {
-  if (Visible) FontManager::RenderText(*Font, Text, PosX + offsetX, PosY, 1.0f, Color, transparency);
+  if (Visible)
+    FontManager::RenderText(*Font, Text, PosX + offsetX + (Selected ? 5 : 0), PosY, 1.0f, Color,
+                            transparency);
 }
 
 void MenuImage::DrawTexture(float offsetX, float transparency) {
-  if (Visible) DrawHelper::DrawTexture(ImageId, PosX + offsetX, PosY, Width, Height, Color, transparency);
+  if (Visible)
+    DrawHelper::DrawTexture(ImageId, PosX + offsetX + (Selected ? 5 : 0), PosY, Width, Height,
+                            Color, transparency);
 }
 
 void MenuButton::DrawText(float offsetX, float transparency) {
@@ -22,6 +30,18 @@ void MenuButton::DrawTexture(float offsetX, float transparency) {
     DrawHelper::DrawTexture(IconId, PosX + (Selected ? 5 : 0) + offsetX,
                             PosY + Font->FontSize / 2 - 14, 28, 28,
                             Selected ? textSelectionColor : textColor, transparency);
+}
+
+void MenuContainer::DrawText(float offsetX, float transparency) {
+  for (int i = 0; i < MenuItems.size(); ++i) {
+    MenuItems.at(i)->DrawText(offsetX, transparency);
+  }
+}
+
+void MenuContainer::DrawTexture(float offsetX, float transparency) {
+  for (int i = 0; i < MenuItems.size(); ++i) {
+    MenuItems.at(i)->DrawTexture(offsetX, transparency);
+  }
 }
 
 void MenuList::DrawText(float offsetX, float transparency) {

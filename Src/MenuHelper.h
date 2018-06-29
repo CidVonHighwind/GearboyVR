@@ -3,6 +3,10 @@
 
 #include "KingInclude.h"
 
+extern int SelectButton;
+extern int BackButton;
+extern bool SwappSelectBackButton;
+
 class MenuItem {
  public:
   bool Selectable = false;
@@ -22,6 +26,8 @@ class MenuItem {
   virtual int PressedLeft() { return 0; }
   virtual int PressedRight() { return 0; }
   virtual int PressedEnter() { return 0; }
+  virtual void Select() { Selected = true; }
+  virtual void Unselect() { Selected = false; }
 
   virtual void Update() {
     if (UpdateFunction != nullptr) UpdateFunction(this);
@@ -133,6 +139,37 @@ class MenuButton : public MenuItem {
   virtual void DrawTexture(float offsetX, float transparency) override;
 };
 
+class MenuContainer : public MenuItem {
+ public:
+  MenuContainer() { Selectable = true; }
+
+  virtual ~MenuContainer() {}
+
+  std::vector<MenuItem *> MenuItems;
+
+  virtual int PressedLeft() override { return MenuItems.at(0)->PressedLeft(); }
+
+  virtual int PressedRight() override { return MenuItems.at(0)->PressedRight(); }
+
+  virtual int PressedEnter() override { return MenuItems.at(0)->PressedEnter(); }
+
+  virtual void DrawText(float offsetX, float transparency) override;
+
+  virtual void DrawTexture(float offsetX, float transparency) override;
+
+  virtual void Select() override {
+    for (int i = 0; i < MenuItems.size(); ++i) {
+      MenuItems.at(i)->Select();
+    }
+  }
+
+  virtual void Unselect() override {
+    for (int i = 0; i < MenuItems.size(); ++i) {
+      MenuItems.at(i)->Unselect();
+    }
+  }
+};
+
 class MenuList : public MenuItem {
  public:
   MenuList(FontManager::RenderFont *font, void (*pressFunction)(Emulator::Rom *item),
@@ -242,7 +279,7 @@ class Menu {
  public:
   void (*BackPress)() = nullptr;
 
-  void Init() { MenuItems[CurrentSelection]->Selected = true; }
+  void Init() { MenuItems[CurrentSelection]->Select(); }
 
   bool ButtonPressed(int buttonState, int lastButtonState, int button) {
     return buttonState & button && (!(lastButtonState & button) ||
@@ -260,7 +297,8 @@ class Menu {
   }
 
   void Update(int buttonState, int lastButtonState) {
-    MenuItems[CurrentSelection]->Selected = false;
+    MenuItems[CurrentSelection]->Unselect();
+    // MenuItems[CurrentSelection]->Selected = false;
 
     // could be done with a single &
     if (buttonState & BUTTON_LSTICK_UP || buttonState & BUTTON_DPAD_UP ||
@@ -288,7 +326,8 @@ class Menu {
       }
     }
 
-    MenuItems[CurrentSelection]->Selected = true;
+    MenuItems[CurrentSelection]->Select();
+    // MenuItems[CurrentSelection]->Selected = true;
 
     if (ButtonPressed(buttonState, lastButtonState, BUTTON_LSTICK_LEFT) ||
         ButtonPressed(buttonState, lastButtonState, BUTTON_DPAD_LEFT)) {
@@ -304,14 +343,13 @@ class Menu {
       }
     }
 
-    if (ButtonPressed(buttonState, lastButtonState, BUTTON_A)) {
+    if (ButtonPressed(buttonState, lastButtonState, SelectButton)) {
       buttonDownCount -= MenuItems[CurrentSelection]->ScrollTimeH;
       if (MenuItems[CurrentSelection]->PressedEnter() == 0) {
       }
     }
-
-    if (buttonState & BUTTON_B && !(lastButtonState & BUTTON_B) && BackPress != nullptr) {
-      BackPress();
+    else if (buttonState & BackButton && !(lastButtonState & BackButton)) {
+      if (BackPress != nullptr) BackPress();
     }
 
     for (int i = 0; i < MenuItems.size(); ++i) {

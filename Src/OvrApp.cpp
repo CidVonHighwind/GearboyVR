@@ -23,7 +23,7 @@ using namespace OVR;
 
 #define GL(func) func;
 
-const int SAVE_FILE_VERSION = 3;
+const int SAVE_FILE_VERSION = 4;
 
 std::vector<Emulator::Rom> *romFileList = new std::vector<Emulator::Rom>();
 
@@ -44,7 +44,7 @@ std::string strForceDMG[] = {"Force DMG: Yes", "Force DMG: No"};
 std::string strMove[] = {"Follow Head: Yes", "Follow Head: No"};
 
 int button_mapping_menu;
-int button_mapping_menu_index = 4;
+int button_mapping_menu_index = 2;
 std::string MapButtonStr[] = {"A", "B", "X", "Y"};
 int MapButtons[] = {BUTTON_A, BUTTON_B, BUTTON_X, BUTTON_Y};
 
@@ -336,7 +336,6 @@ void SaveSettings() {
 
   Emulator::SaveSettings(&saveFile);
   saveFile.write(reinterpret_cast<const char *>(&romList->CurrentSelection), sizeof(int));
-  saveFile.write(reinterpret_cast<const char *>(&saveSlot), sizeof(int));
   saveFile.write(reinterpret_cast<const char *>(&LayerBuilder::screenPitch), sizeof(float));
   saveFile.write(reinterpret_cast<const char *>(&LayerBuilder::screenYaw), sizeof(float));
   saveFile.write(reinterpret_cast<const char *>(&LayerBuilder::screenRoll), sizeof(float));
@@ -344,6 +343,7 @@ void SaveSettings() {
   saveFile.write(reinterpret_cast<const char *>(&LayerBuilder::screenSize), sizeof(float));
   saveFile.write(reinterpret_cast<const char *>(&followHead), sizeof(bool));
   saveFile.write(reinterpret_cast<const char *>(&button_mapping_menu_index), sizeof(int));
+  saveFile.write(reinterpret_cast<const char *>(&SwappSelectBackButton), sizeof(bool));
 
   saveFile.close();
   LOG("Saved Settings");
@@ -361,7 +361,6 @@ void LoadSettings() {
     if (saveFileVersion == SAVE_FILE_VERSION) {
       Emulator::LoadSettings(&loadFile);
       loadFile.read((char *)&romSelection, sizeof(int));
-      loadFile.read((char *)&saveSlot, sizeof(int));
       loadFile.read((char *)&LayerBuilder::screenPitch, sizeof(float));
       loadFile.read((char *)&LayerBuilder::screenYaw, sizeof(float));
       loadFile.read((char *)&LayerBuilder::screenRoll, sizeof(float));
@@ -369,6 +368,7 @@ void LoadSettings() {
       loadFile.read((char *)&LayerBuilder::screenSize, sizeof(float));
       loadFile.read((char *)&followHead, sizeof(bool));
       loadFile.read((char *)&button_mapping_menu_index, sizeof(int));
+      loadFile.read((char *)&SwappSelectBackButton, sizeof(bool));
     }
 
     // TODO: reset all loaded settings
@@ -492,7 +492,7 @@ void DrawMenu() {
   if(transitionState < 0)
     trProgressIn = 0;
 
-  int dist = 125;
+  int dist = 75;
 
   FontManager::Begin();
 
@@ -915,6 +915,18 @@ void MoveBButtonMapping(MenuItem *item, int dir) {
   ((MenuButton *)item)->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[1]];
 }
 
+void SwapButtonSelectBack(MenuItem *item) {
+  SwappSelectBackButton = !SwappSelectBackButton;
+  ((MenuButton *)item)->Text = "Swap Select and Back: ";
+  ((MenuButton *)item)->Text.append((SwappSelectBackButton ? "Yes" : "No"));
+
+  SelectButton = SwappSelectBackButton ? BUTTON_B : BUTTON_A;
+  BackButton = SwappSelectBackButton ? BUTTON_A : BUTTON_B;
+
+  selectHelp->IconId = SwappSelectBackButton ? textureButtonBIconId : textureButtonAIconId;
+  backHelp->IconId = SwappSelectBackButton ? textureButtonAIconId : textureButtonBIconId;
+}
+
 void MoveMenuButtonMapping(MenuItem *item, int dir) {
   button_mapping_menu_index += dir;
   if (button_mapping_menu_index > 3) button_mapping_menu_index = 2;
@@ -989,9 +1001,9 @@ void OvrApp::SetUpMenu() {
   menuHelp = new MenuButton(&fontBottom,
       button_mapping_menu_index == 2 ? textureButtonXIconId : textureButtonYIconId, "Close Menu",
       7, menuHeight - fontBottom.FontSize - 7, nullptr, nullptr, nullptr);
-  backHelp = new MenuButton(&fontBottom,textureButtonBIconId, "Back", menuWidth - 210,
+  backHelp = new MenuButton(&fontBottom, SwappSelectBackButton ? textureButtonAIconId : textureButtonBIconId, "Back", menuWidth - 210,
                             menuHeight - fontBottom.FontSize - 7, nullptr, nullptr, nullptr);
-  selectHelp = new MenuButton(&fontBottom,textureButtonAIconId, "Select", menuWidth - 110,
+  selectHelp = new MenuButton(&fontBottom,SwappSelectBackButton ? textureButtonBIconId : textureButtonAIconId, "Select", menuWidth - 110,
                               menuHeight - fontBottom.FontSize - 7, nullptr, nullptr, nullptr);
 
   bottomBar.MenuItems.push_back(backHelp);
@@ -1051,22 +1063,27 @@ void OvrApp::SetUpMenu() {
       textureFollowHeadIconId, strMove[followHead ? 0 : 1], posX, posY += menuItemSize + 5,
       OnClickFollowMode, OnClickFollowMode, OnClickFollowMode));
 
+  MenuContainer *menuContainer = new MenuContainer();
   MenuButton *paletteButton = new MenuButton(&fontMenu,texturePaletteIconId, "", posX, posY += menuItemSize,
                                              OnClickChangePaletteRight, OnClickChangePaletteLeft,
                                              OnClickChangePaletteRight);
-
-  for (int i = 0; i < 4; ++i)
-    imagePalette[i] = new MenuImage(textureWhiteId, posX + fontMenu.FontSize * i + 170, posY, fontMenu.FontSize, fontMenu.FontSize, {0.0f, 0.0f,0.0f,0.0f});
+  menuContainer->MenuItems.push_back(paletteButton);
+  for (int i = 0; i < 4; ++i) {
+    imagePalette[i] = new MenuImage(textureWhiteId,
+                                    posX + fontMenu.FontSize * i + 170,
+                                    posY,
+                                    fontMenu.FontSize,
+                                    fontMenu.FontSize,
+                                    {0.0f, 0.0f, 0.0f, 0.0f});
+    menuContainer->MenuItems.push_back(imagePalette[i]);
+  }
   UpdatePalettes();
 
   MenuButton *dmgButton =
       new MenuButton(&fontMenu,textureDMGIconId, "", posX, posY += menuItemSize, OnClickEmulatedModel,
                      OnClickEmulatedModel, OnClickEmulatedModel);
 
-  settingsMenu.MenuItems.push_back(paletteButton);
-
-  for (int i = 0; i < 4; ++i)
-    settingsMenu.MenuItems.push_back(imagePalette[i]);
+  settingsMenu.MenuItems.push_back(menuContainer);
 
   settingsMenu.MenuItems.push_back(dmgButton);
   settingsMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureBackIconId, "Back", posX,
@@ -1091,8 +1108,11 @@ void OvrApp::SetUpMenu() {
   // button mapping page
   posY = HEADER_HEIGHT + 20;
 
+  MenuButton *swapButton =
+      new MenuButton(&fontMenu,textureLoadRomIconId, "", posX, posY, SwapButtonSelectBack,
+                     SwapButtonSelectBack, SwapButtonSelectBack);
   MenuButton *menuButton =
-      new MenuButton(&fontMenu,textureLoadRomIconId, "", posX, posY, OnClickChangeMenuButtonRight,
+      new MenuButton(&fontMenu,textureLoadRomIconId, "", posX, posY += menuItemSize + 5, OnClickChangeMenuButtonRight,
                      OnClickChangeMenuButtonLeft, OnClickChangeMenuButtonRight);
   MenuButton *aButton = new MenuButton(&fontMenu,textureButtonAIconId, "", posX, posY += menuItemSize + 5,
                                        OnClickChangeAButtonRight, OnClickChangeAButtonLeft,
@@ -1100,10 +1120,14 @@ void OvrApp::SetUpMenu() {
   MenuButton *bButton = new MenuButton(&fontMenu,textureButtonBIconId, "", posX, posY += menuItemSize,
                                        OnClickChangeBButtonRight, OnClickChangeBButtonLeft,
                                        OnClickChangeBButtonRight);
+
+  SwapButtonSelectBack(swapButton);
+  SwapButtonSelectBack(swapButton);
   MoveMenuButtonMapping(menuButton, 0);
   MoveAButtonMapping(aButton, 0);
   MoveBButtonMapping(bButton, 0);
 
+  buttonMapMenu.MenuItems.push_back(swapButton);
   buttonMapMenu.MenuItems.push_back(menuButton);
   buttonMapMenu.MenuItems.push_back(aButton);
   buttonMapMenu.MenuItems.push_back(bButton);

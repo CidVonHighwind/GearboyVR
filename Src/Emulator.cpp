@@ -26,7 +26,7 @@ bool forceDMG = false;
 
 int MapButtons[] = {BUTTON_A, BUTTON_B, BUTTON_X, BUTTON_Y};
 int button_mapping[2] = {0, 0};
-int button_mapping_index[2] = {0, 1};
+int button_mapping_index[2] = {1, 0};
 
 bool audioInit = false;
 int selectedPalette = 15;
