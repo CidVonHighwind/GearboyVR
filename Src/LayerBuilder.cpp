@@ -106,7 +106,7 @@ ovrLayerCylinder2 BuildGameCylinderLayer(ovrTextureSwapChain *cylinderSwapChain,
   const ovrVector3f translation = tracking->HeadPose.Pose.Position;
 
   ovrMatrix4f cylinderTransform =
-      CylinderModelMatrix(textureHeight, translation, radiusMenuScreen + radiusMenuScreen * 0.01f,
+      CylinderModelMatrix(textureHeight, translation, radiusMenuScreen + radiusMenuScreen * 0.02f,
                           followHead ? &currentfQuat : nullptr, density, 0);
 
   const float circScale = density * 0.5f / textureWidth;

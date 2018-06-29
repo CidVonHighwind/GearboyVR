@@ -16,6 +16,7 @@ struct Character {
 
 struct RenderFont {
   int FontSize;
+  int offsetY;
   GLuint textureID;
   std::map<GLchar, Character> Characters;
 };

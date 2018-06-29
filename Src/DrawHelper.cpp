@@ -53,7 +53,7 @@ static const char FRAGMENT_SHADER_TEXTURE[] =
     "void main()\n"
     "{\n"
     "	vec4 tex_sample = texture(text, TexCoords);\n"
-    "	color = tex_sample * tex_sample.a * textColor;\n"
+    "	color = tex_sample * textColor * tex_sample.a;\n"
     "}\n";
 
 void Init(GLfloat menuWidth, GLfloat menuHeight) {

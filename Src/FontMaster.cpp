@@ -70,14 +70,15 @@ void LoadFont(RenderFont *font, const char *filePath, uint fontSize) {
 
   if (FT_New_Face(ft, filePath, 0, &face)) LOG("ERROR::FREETYPE: Failed to load font");
 
-  FT_Set_Pixel_Sizes(face, 0, fontSize);
+  // FT_Set_Pixel_Sizes(face, fontSize, fontSize);
+  FT_Set_Char_Size(face, 0, fontSize << 6, 96, 96);
 
   // Disable byte-alignment restriction
   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
   // create a texture for the characters
-  int textureWidth = 10 * fontSize;
-  int textureHeight = 10 * fontSize;
+  int textureWidth = 20 * fontSize;
+  int textureHeight = 8 * fontSize;
   glGenTextures(1, &font->textureID);
   glBindTexture(GL_TEXTURE_2D, font->textureID);
   glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, textureWidth, textureHeight, 0, GL_ALPHA,
@@ -96,7 +97,7 @@ void LoadFont(RenderFont *font, const char *filePath, uint fontSize) {
     // go to the next line
     if (posX + face->glyph->bitmap.width > textureWidth) {
       posX = 0;
-      posY += fontSize + 2;
+      posY += fontSize + fontSize * 1 / 2.0f;
     }
 
     glTexSubImage2D(GL_TEXTURE_2D, 0, posX, posY, face->glyph->bitmap.width,
@@ -111,6 +112,10 @@ void LoadFont(RenderFont *font, const char *filePath, uint fontSize) {
                            glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
                            ((GLuint)face->glyph->advance.x >> 6)};
     font->Characters.insert(std::pair<GLchar, Character>(c, character));
+
+    // this is probably somewhere in the loaded data
+    if ((face->glyph->metrics.vertBearingY >> 6) > font->offsetY)
+      font->offsetY = (face->glyph->metrics.vertBearingY >> 6);
 
     posX += face->glyph->bitmap.width + 2;
   }
@@ -170,7 +175,7 @@ void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat
     Character ch = font.Characters[*c];
 
     GLfloat xpos = x + ch.Bearing.x * scale;
-    GLfloat ypos = y + font.FontSize - (ch.Bearing.y) * scale;
+    GLfloat ypos = y + font.FontSize - ch.Bearing.y;  // font.FontSize;// - (ch.Bearing.y) * scale;
 
     GLfloat w = ch.Size.x * scale;
     GLfloat h = ch.Size.y * scale;

@@ -39,6 +39,10 @@ extern int selectedPalette;
 
 extern int button_mapping_index[2];
 
+const int paletteCount = 30;
+
+extern GB_Color palettes[paletteCount][4];
+
 extern bool forceDMG;
 
 void Init(std::string stateFolder);

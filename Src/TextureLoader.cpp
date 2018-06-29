@@ -39,6 +39,9 @@ GLuint Load_Texture(const void *Data, std::size_t Size) {
   glTexParameteri(Target, GL_TEXTURE_SWIZZLE_B, Format.Swizzles[2]);
   glTexParameteri(Target, GL_TEXTURE_SWIZZLE_A, Format.Swizzles[3]);
 
+  glTexParameteri(Target, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+  glTexParameteri(Target, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
   glm::tvec3<GLsizei> const Extent(Texture.extent());
   GLsizei const FaceTotal = static_cast<GLsizei>(Texture.layers() * Texture.faces());
 
