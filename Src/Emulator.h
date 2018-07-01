@@ -16,6 +16,7 @@ struct Rom {
 };
 
 struct SaveState {
+  bool hasImage;
   bool filled;
   GB_Color *saveImage;
 };
@@ -58,6 +59,8 @@ void UpdateStateImage(int saveSlot);
 void ChangePalette(int dir);
 
 void ResetGame();
+
+void UpdateButtonMapping();
 
 void ChangeButtonMapping(int buttonIndex, int dir);
 

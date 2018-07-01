@@ -1,3 +1,4 @@
+#include <freetype/tttables.h>
 #include "FontMaster.h"
 
 using namespace OVR;
@@ -71,13 +72,14 @@ void LoadFont(RenderFont *font, const char *filePath, uint fontSize) {
   if (FT_New_Face(ft, filePath, 0, &face)) LOG("ERROR::FREETYPE: Failed to load font");
 
   // FT_Set_Pixel_Sizes(face, fontSize, fontSize);
-  FT_Set_Char_Size(face, 0, fontSize << 6, 96, 96);
+  //FT_Set_Char_Size(face, 0, fontSize << 6, 96, 96);
+  FT_Set_Pixel_Sizes(face, 0, fontSize);
 
   // Disable byte-alignment restriction
   glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
 
   // create a texture for the characters
-  int textureWidth = 20 * fontSize;
+  int textureWidth = 30 * fontSize;
   int textureHeight = 8 * fontSize;
   glGenTextures(1, &font->textureID);
   glBindTexture(GL_TEXTURE_2D, font->textureID);
@@ -87,11 +89,35 @@ void LoadFont(RenderFont *font, const char *filePath, uint fontSize) {
   int posX = 1;
   int posY = 1;
 
-  for (GLubyte c = 0; c < 192; c++) {
+  //font->offsetY = (face->ascender >> 6);
+
+  // LOG("fontsize: %i, %i, %i", fontSize, .sTypoAscender, TT_OS2.sTypoDescender);
+
+  for (GLubyte c = 32; c < 192; c++) {
     // Load character glyph
     if (FT_Load_Char(face, c, FT_LOAD_RENDER)) {
       std::cout << "ERROR::FREETYTPE: Failed to load Glyph" << std::endl;
       continue;
+    }
+
+    float descent = 0.0f;
+    if (descent < (face->glyph->bitmap.rows - face->glyph->bitmap_top)) {
+      descent = face->glyph->bitmap.rows - face->glyph->bitmap_top;
+    }
+
+    float ascent_calc = 0.0f;
+    if (face->glyph->bitmap_top < face->glyph->bitmap.rows) {
+      ascent_calc = face->glyph->bitmap.rows;
+    } else {
+      ascent_calc = face->glyph->bitmap_top;
+    }
+    float ascent = 0.0f;
+    if (ascent < (ascent_calc - descent)) {
+      ascent = ascent_calc - descent;
+    }
+    if(font->offsetY < (int)ascent) {
+      LOG("new ascent %i to %f", font->offsetY, ascent);
+      font->offsetY = (int) ascent;
     }
 
     // go to the next line
@@ -113,12 +139,13 @@ void LoadFont(RenderFont *font, const char *filePath, uint fontSize) {
                            ((GLuint)face->glyph->advance.x >> 6)};
     font->Characters.insert(std::pair<GLchar, Character>(c, character));
 
-    // this is probably somewhere in the loaded data
-    if ((face->glyph->metrics.vertBearingY >> 6) > font->offsetY)
-      font->offsetY = (face->glyph->metrics.vertBearingY >> 6);
-
     posX += face->glyph->bitmap.width + 2;
   }
+
+  Character ch = font->Characters['P'];
+  font->PHeight = ch.Size.y;
+  font->PStart = font->offsetY - ch.Bearing.y;
+  LOG("offset: %i, height: %i, start: %i", font->offsetY, font->PHeight, font->PStart);
 
   // Set texture options
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -175,7 +202,7 @@ void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat
     Character ch = font.Characters[*c];
 
     GLfloat xpos = x + ch.Bearing.x * scale;
-    GLfloat ypos = y + font.FontSize - ch.Bearing.y;  // font.FontSize;// - (ch.Bearing.y) * scale;
+    GLfloat ypos = y + font.offsetY - ch.Bearing.y;  // font.FontSize;// - (ch.Bearing.y) * scale;
 
     GLfloat w = ch.Size.x * scale;
     GLfloat h = ch.Size.y * scale;
@@ -210,6 +237,40 @@ void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat
   glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
   glBindBuffer(GL_ARRAY_BUFFER, 0);
   // Render quad
+  // .length() will not work when a char is bigger than 1 byte
   glDrawArrays(GL_TRIANGLES, 0, 6 * text.length());
+}
+
+void RenderFontImage(FontManager::RenderFont font, ovrVector4f color, float transparency) {
+
+  GLfloat posX = 0.0f;
+  GLfloat posY = 200.0f;
+  GLfloat posZ = posX + font.FontSize * 30.0f;
+  GLfloat posW = posY + font.FontSize * 8.0f;
+
+  // Update VBO for each character
+  GLfloat charVertices[6][4] = {{posX, posW, 0, 1},
+                                {posX, posY, 0, 0},
+                                {posZ, posY, 1, 0},
+
+                                {posX, posW, 0, 1},
+                                {posZ, posY, 1, 0},
+                                {posZ, posW, 1, 1}};
+
+  // Activate corresponding render state
+  glUniform4f(glGetUniformLocation(glProgram.Program, "textColor"), color.x * transparency,
+              color.y * transparency, color.z * transparency, color.w * transparency);
+
+  // if (fontTexture == 0 || fontTexture != font.textureID) {
+  fontTexture = font.textureID;
+  glBindTexture(GL_TEXTURE_2D, font.textureID);
+  //}
+
+  // Update content of VBO memory
+  glBindBuffer(GL_ARRAY_BUFFER, VBO);
+  glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(charVertices), charVertices);
+  glBindBuffer(GL_ARRAY_BUFFER, 0);
+  // Render quad
+  glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 }  // namespace FontManager

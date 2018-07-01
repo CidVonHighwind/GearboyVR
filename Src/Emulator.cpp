@@ -75,6 +75,9 @@ using namespace OVR;
 void Init(std::string stateFolder) {
   stateFolderPath = stateFolder;
 
+  gearboy_frame_buf = new GB_Color[VIDEO_WIDTH * VIDEO_HEIGHT];
+  texData = (uint32_t *)malloc(CylinderWidth * CylinderHeight * sizeof(uint32_t));
+
   InitScreen();
   InitStateImage();
 
@@ -84,12 +87,8 @@ void Init(std::string stateFolder) {
 
   currentGame = new LoadedGame();
   for (int i = 0; i < 10; ++i) {
-    currentGame->saveStates[i].saveImage =
-        (GB_Color *)malloc(VIDEO_WIDTH * VIDEO_HEIGHT * sizeof(uint32_t));
-    // new GB_Color[VIDEO_WIDTH * VIDEO_HEIGHT];
+    currentGame->saveStates[i].saveImage = new GB_Color[VIDEO_WIDTH * VIDEO_HEIGHT]();
   }
-  gearboy_frame_buf = new GB_Color[VIDEO_WIDTH * VIDEO_HEIGHT];
-  texData = (uint32_t *)malloc(CylinderWidth * CylinderHeight * sizeof(uint32_t));
 
   // init audio
   OpenSLWrap_Init();
@@ -117,10 +116,12 @@ void InitScreen() {
   glBindTexture(GL_TEXTURE_2D, screenTextureId);
   glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, CylinderWidth, CylinderHeight, GL_RGBA, GL_UNSIGNED_BYTE,
                   NULL);
+
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
   GLfloat borderColor[] = {0.0f, 0.0f, 0.0f, 0.0f};
   glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+
   glBindTexture(GL_TEXTURE_2D, 0);
 
   // emulator output texture
@@ -132,6 +133,11 @@ void InitScreen() {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+  glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
+
   glBindTexture(GL_TEXTURE_2D, 0);
 
   // create the framebuffer for the screen texture
@@ -241,6 +247,12 @@ void LoadSettings(std::ifstream *file) {
   }
 }
 
+void UpdateButtonMapping() {
+  for (int i = 0; i < 2; ++i) {
+    button_mapping[i] = MapButtons[button_mapping_index[i]];
+  }
+}
+
 void ChangeButtonMapping(int buttonIndex, int dir) {
   button_mapping_index[buttonIndex] += dir;
 
@@ -285,12 +297,13 @@ void LoadGame(Rom *rom) {
 
   for (int i = 0; i < 10; ++i) {
     if (!LoadStateImage(i)) {
-      currentGame->saveStates[i].filled = false;
+      currentGame->saveStates[i].hasImage = false;
 
+      // clear memory
       memset(currentGame->saveStates[i].saveImage, 0,
              sizeof(GB_Color) * VIDEO_WIDTH * VIDEO_HEIGHT);
     } else {
-      currentGame->saveStates[i].filled = true;
+      currentGame->saveStates[i].hasImage = true;
     }
   }
 

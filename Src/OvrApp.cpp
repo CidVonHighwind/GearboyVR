@@ -1,3 +1,4 @@
+#include <VrApi/Include/VrApi_Types.h>
 #include "OvrApp.h"
 #include "MenuHelper.h"
 
@@ -38,7 +39,7 @@ bool showExitDialog = false;
 int romSelection = 0;
 
 float transitionPercentage = 1.0f;
-unsigned int lastButtonState;
+int buttonState, lastButtonState;
 
 std::string strForceDMG[] = {"Force DMG: Yes", "Force DMG: No"};
 std::string strMove[] = {"Follow Head: Yes", "Follow Head: No"};
@@ -68,7 +69,12 @@ jmethodID getVal;
 int batteryLevel, batter_string_width, time_string_width;
 std::string time_string, battery_string;
 
+int ButtonMappingIndex = 0;
+bool UpdateMapping = false;
+float MappingOverlayPercentage;
+
 Vector4f MenuBackgroundColor{0.03f, 0.036f, 0.06f, 0.985f};
+//Vector4f MenuBackgroundColor{0.0f, 0.0f, 0.0f, 0.0f};
 Vector4f MenuBackgroundOverlayColor{0.0f, 0.0f, 0.0f, 0.25f};
 Vector4f MenuBackgroundOverlayColorLight{0.0f, 0.0f, 0.0f, 0.15f};
 
@@ -78,9 +84,11 @@ Vector4f BatteryBackgroundColor{0.15f, 0.15f, 0.15f, 1.0f};
 ovrTextureSwapChain *MenuSwapChain;
 GLuint MenuFrameBuffer = 0;
 
-FontManager::RenderFont fontHeader, fontBattery, fontTime, fontMenu, fontList, fontBottom, fontSlot, fontSmall;
+FontManager::RenderFont fontHeader, fontBattery, fontTime, fontMenu, fontList, fontBottom, fontSlot,
+    fontSmall;
 
-GLuint textureIdMenu, textureHeaderIconId, textureGbIconId, textureGbcIconId, textureSaveIconId,
+GLuint textureBackgroundId, textureIdMenu, textureHeaderIconId, textureGbIconId, textureGbcIconId,
+    textureSaveIconId,
     textureLoadIconId, textureWhiteId, textureResumeId, textureSettingsId, texuterLeftRightIconId,
     textureUpDownIconId, textureResetIconId, textureSaveSlotIconId, textureLoadRomIconId,
     textureBackIconId, textureMoveIconId, textureDistanceIconId, textureResetViewIconId,
@@ -88,7 +96,7 @@ GLuint textureIdMenu, textureHeaderIconId, textureGbIconId, textureGbcIconId, te
     textureButtonBIconId, textureButtonXIconId, textureButtonYIconId, textureFollowHeadIconId,
     textureDMGIconId, textureExitIconId;
 
-template <typename T>
+template<typename T>
 std::string to_string(T value) {
   std::ostringstream os;
   os << value;
@@ -96,15 +104,24 @@ std::string to_string(T value) {
 }
 
 bool isTransitioning;
-int transitionDir, transitionMoveDir = 1;
+int transitionMoveDir = 1;
 float transitionState = 1;
 Menu *currentMenu, *nextMenu, *currentBottomBar;
-Menu romSelectionMenu, mainMenu, settingsMenu, moveMenu, buttonMapMenu, bottomBar;
+Menu romSelectionMenu, mainMenu, settingsMenu, moveMenu, buttonMapMenu, bottomBar,
+    buttonMappingOverlay;
+
+int *remapButton;
+MenuButton *mappedButton;
+void (*updateMappingText)() = nullptr;
+std::vector<int> possibleMappingIndices;
 
 MenuButton *backHelp, *menuHelp, *selectHelp;
 MenuList *romList;
-MenuLabel *emptySlotLabel;
+MenuLabel *emptySlotLabel, *noImageSlotLabel;
+MenuLabel *mappingButtonLabel, *possibleMappingLabel;
 
+MenuButton *menuMappingButton;
+MenuButton *buttonMapping[2];
 MenuImage *imagePalette[4];
 
 MenuButton *slotButton;
@@ -124,12 +141,12 @@ jlong Java_com_a_gear_boy_go_MainActivity_nativeSetAppInterface(JNIEnv *jni, jcl
                                                                 jstring commandString,
                                                                 jstring uriString) {
   jmethodID messageMe = jni->GetMethodID(clazz, "getInternalStorageDir", "()Ljava/lang/String;");
-  jobject result = (jstring)jni->CallObjectMethod(activity, messageMe);
-  storageDir = jni->GetStringUTFChars((jstring)result, NULL);
+  jobject result = (jstring) jni->CallObjectMethod(activity, messageMe);
+  storageDir = jni->GetStringUTFChars((jstring) result, NULL);
 
   messageMe = jni->GetMethodID(clazz, "getExternalFilesDir", "()Ljava/lang/String;");
-  result = (jstring)jni->CallObjectMethod(activity, messageMe);
-  appDir = jni->GetStringUTFChars((jstring)result, NULL);
+  result = (jstring) jni->CallObjectMethod(activity, messageMe);
+  appDir = jni->GetStringUTFChars((jstring) result, NULL);
 
   saveFilePath = appDir;
   saveFilePath.append("/settings.config");
@@ -152,15 +169,15 @@ jlong Java_com_a_gear_boy_go_MainActivity_nativeSetAppInterface(JNIEnv *jni, jcl
 
 #endif
 
-void MenuList::DrawTexture(float offsetX, float transparency) {
+void MenuList::DrawTexture(float offsetX, float offsetY, float transparency) {
   // calculate the slider position
-  float scale = maxListItems / (float)RomList->size();
+  float scale = maxListItems / (float) RomList->size();
   if (scale > 1) scale = 1;
   GLfloat recHeight = scrollbarHeight * scale;
 
   GLfloat sliderPercentage = 0;
   if (RomList->size() > maxListItems)
-    sliderPercentage = (menuListState / (float)(RomList->size() - maxListItems));
+    sliderPercentage = (menuListState / (float) (RomList->size() - maxListItems));
   else
     sliderPercentage = 0;
 
@@ -174,12 +191,15 @@ void MenuList::DrawTexture(float offsetX, float transparency) {
                           sliderColor, transparency);
 
   // draw the cartridge icons
-  for (uint i = (uint)menuListState; i < menuListState + maxListItems; i++) {
+  for (uint i = (uint) menuListState; i < menuListState + maxListItems; i++) {
     if (i < RomList->size()) {
       DrawHelper::DrawTexture(
           RomList->at(i).isGbc ? textureGbcIconId : textureGbIconId,
-          PosX + offsetX + scrollbarWidth + 15 + (((uint)CurrentSelection == i) ? 5 : 0),
-          listStartY + listItemSize * (i - menuListState) + listItemSize / 2 - 12, 21, 24, {1.0f, 1.0f, 1.0f, 1.0f},
+          PosX + offsetX + scrollbarWidth + 15 + (((uint) CurrentSelection == i) ? 5 : 0),
+          listStartY + listItemSize / 2 - 12 + listItemSize * (i - menuListState) + offsetY,
+          21,
+          24,
+          {1.0f, 1.0f, 1.0f, 1.0f},
           transparency);
     }
   }
@@ -221,16 +241,18 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
 
   if (intentType == INTENT_LAUNCH) {
     FontManager::Init(menuWidth, menuHeight);
-    FontManager::LoadFont(&fontHeader, "/system/fonts/Roboto-Regular.ttf", 45);
-    FontManager::LoadFont(&fontBattery, "/system/fonts/Roboto-Bold.ttf", 16);
+    FontManager::LoadFont(&fontHeader, "/system/fonts/Roboto-Regular.ttf", 50);
+    FontManager::LoadFont(&fontBattery, "/system/fonts/Roboto-Bold.ttf", 20);
     fontTime = fontBattery;
-    FontManager::LoadFont(&fontMenu, "/system/fonts/Roboto-Regular.ttf", 20);
-    FontManager::LoadFont(&fontList, "/system/fonts/Roboto-Regular.ttf", 16);
-    FontManager::LoadFont(&fontBottom, "/system/fonts/Roboto-Regular.ttf", 16);
+    FontManager::LoadFont(&fontMenu, "/system/fonts/Roboto-Regular.ttf", 24);
+    FontManager::LoadFont(&fontList, "/system/fonts/Roboto-Regular.ttf", 22);
+    FontManager::LoadFont(&fontBottom, "/system/fonts/Roboto-Regular.ttf", 22);
 
     FontManager::LoadFont(&fontSmall, "/system/fonts/Roboto-Light.ttf", 14);
-    FontManager::LoadFont(&fontSlot, "/system/fonts/Roboto-Light.ttf", 24);
+    FontManager::LoadFont(&fontSlot, "/system/fonts/Roboto-Regular.ttf", 26);
     FontManager::CloseFontLoader();
+
+    textureBackgroundId = TextureLoader::Load(app, "apk:///assets/background2.dds");
 
     textureHeaderIconId = TextureLoader::Load(app, "apk:///assets/header_icon.dds");
     textureGbIconId = TextureLoader::Load(app, "apk:///assets/gb_cartridge.dds");
@@ -285,7 +307,7 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
 
 int UpdateBatteryLevel() {
   jint bLevel = java->Env->CallIntMethod(java->ActivityObject, getVal);
-  int returnValue = (int)bLevel;
+  int returnValue = (int) bLevel;
   return returnValue;
 }
 
@@ -298,18 +320,10 @@ void CreateScreen() {
   glBindTexture(GL_TEXTURE_2D, textureIdMenu);
   glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, menuWidth, menuHeight, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 
-  if (false) {  // !glExtensions.EXT_texture_border_clamp
-    LOG("Error texture border clamp not supported");
-    // Just clamp to edge. However, this requires manually clearing the border
-    // around the layer to clear the edge texels.
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  } else {
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    GLfloat borderColor[] = {0.0f, 0.0f, 0.0f, 0.0f};
-    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
-  }
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+  GLfloat borderColor[] = {0.0f, 0.0f, 0.0f, 0.0f};
+  glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
 
   glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -318,7 +332,10 @@ void CreateScreen() {
   glBindFramebuffer(GL_FRAMEBUFFER, MenuFrameBuffer);
 
   // Set "renderedTexture" as our colour attachement #0
-  glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, (GLuint)textureIdMenu,
+  glFramebufferTexture2D(GL_FRAMEBUFFER,
+                         GL_COLOR_ATTACHMENT0,
+                         GL_TEXTURE_2D,
+                         (GLuint) textureIdMenu,
                          0);
 
   // Set the list of draw buffers.
@@ -355,20 +372,20 @@ void LoadSettings() {
     loadFile.seekg(0, std::ios::beg);
 
     int saveFileVersion = 0;
-    loadFile.read((char *)&saveFileVersion, sizeof(int));
+    loadFile.read((char *) &saveFileVersion, sizeof(int));
 
     // only load if the save versions are compatible
     if (saveFileVersion == SAVE_FILE_VERSION) {
       Emulator::LoadSettings(&loadFile);
-      loadFile.read((char *)&romSelection, sizeof(int));
-      loadFile.read((char *)&LayerBuilder::screenPitch, sizeof(float));
-      loadFile.read((char *)&LayerBuilder::screenYaw, sizeof(float));
-      loadFile.read((char *)&LayerBuilder::screenRoll, sizeof(float));
-      loadFile.read((char *)&LayerBuilder::radiusMenuScreen, sizeof(float));
-      loadFile.read((char *)&LayerBuilder::screenSize, sizeof(float));
-      loadFile.read((char *)&followHead, sizeof(bool));
-      loadFile.read((char *)&button_mapping_menu_index, sizeof(int));
-      loadFile.read((char *)&SwappSelectBackButton, sizeof(bool));
+      loadFile.read((char *) &romSelection, sizeof(int));
+      loadFile.read((char *) &LayerBuilder::screenPitch, sizeof(float));
+      loadFile.read((char *) &LayerBuilder::screenYaw, sizeof(float));
+      loadFile.read((char *) &LayerBuilder::screenRoll, sizeof(float));
+      loadFile.read((char *) &LayerBuilder::radiusMenuScreen, sizeof(float));
+      loadFile.read((char *) &LayerBuilder::screenSize, sizeof(float));
+      loadFile.read((char *) &followHead, sizeof(bool));
+      loadFile.read((char *) &button_mapping_menu_index, sizeof(int));
+      loadFile.read((char *) &SwappSelectBackButton, sizeof(bool));
     }
 
     // TODO: reset all loaded settings
@@ -418,7 +435,7 @@ void ScanDirectory() {
 
           // check if it is a gbc rom
           newRom.isGbc = (strFilename.find(".gbc") != std::string::npos ||
-                          strFilename.find(".cgb") != std::string::npos);
+              strFilename.find(".cgb") != std::string::npos);
 
           romFileList->push_back(newRom);
 
@@ -464,7 +481,7 @@ void GetBattryString(std::string &batteryString) {
   batter_string_width = FontManager::GetWidth(fontBattery, batteryString);
 }
 
-void UpdateMenu(const ovrFrameInput &vrFrame) {
+void UpdateMenu() {
   if (isTransitioning) {
     transitionState -= MENU_TRANSITION_SPEED;
     if (transitionState < 0) {
@@ -476,7 +493,7 @@ void UpdateMenu(const ovrFrameInput &vrFrame) {
     // @hack: this should be done nicer
     emptySlotLabel->Visible = !Emulator::currentGame->saveStates[saveSlot].filled;
 
-    currentMenu->Update(vrFrame.Input.buttonState, lastButtonState);
+    currentMenu->Update(buttonState, lastButtonState);
   }
 }
 
@@ -484,44 +501,56 @@ void DrawMenu() {
   // the
   float trProgressOut = ((transitionState - 0.35f) / 0.65f);
   float progressOut = sinf(trProgressOut * MATH_FLOAT_PIOVER2);
-  if(trProgressOut < 0)
+  if (trProgressOut < 0)
     trProgressOut = 0;
 
   float trProgressIn = (((1 - transitionState) - 0.35f) / 0.65f);
   float progressIn = sinf(trProgressIn * MATH_FLOAT_PIOVER2);
-  if(transitionState < 0)
+  if (transitionState < 0)
     trProgressIn = 0;
 
   int dist = 75;
 
+  if (UpdateMapping) {
+    MappingOverlayPercentage += 0.2f;
+    if (MappingOverlayPercentage > 1)
+      MappingOverlayPercentage = 1;
+  } else {
+    MappingOverlayPercentage -= 0.2f;
+    if (MappingOverlayPercentage < 0)
+      MappingOverlayPercentage = 0;
+  }
+
+  // draw the current menu
+  currentMenu->Draw(-transitionMoveDir, 0, (1 - progressOut), dist, trProgressOut);
+  // draw the next menu fading in
+  if (isTransitioning)
+    nextMenu->Draw(transitionMoveDir, 0, (1 - progressIn), dist, trProgressIn);
+
+  // draw the bottom bar
+  currentBottomBar->Draw(0, 0, 0, 0, 1);
+
+  if (MappingOverlayPercentage) {
+    buttonMappingOverlay.Draw(0,
+                              -1,
+                              (1 - sinf(MappingOverlayPercentage * MATH_FLOAT_PIOVER2)),
+                              dist,
+                              MappingOverlayPercentage);
+  }
+
+  /*
+  DrawHelper::DrawTexture(textureWhiteId,
+                          0,
+                          200,
+                          fontMenu.FontSize * 30,
+                          fontMenu.FontSize * 8,
+                          {0.0f, 0.0f, 0.0f, 1.0f},
+                          1.0f);
+
   FontManager::Begin();
+  FontManager::RenderFontImage(fontMenu, {1.0f, 1.0f, 1.0f, 1.0f}, 1.0f);
+  FontManager::Close(); */
 
-  // draw menu strings
-  for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
-    currentMenu->MenuItems[i]->DrawText(-transitionMoveDir * (1 - progressOut) * dist, trProgressOut);
-
-  // fade in transition effect
-  if (isTransitioning)
-    for (uint i = 0; i < nextMenu->MenuItems.size(); i++)
-      nextMenu->MenuItems[i]->DrawText(transitionMoveDir * (1 - progressIn) * dist, trProgressIn);
-
-  // bottom bar
-  for (uint i = 0; i < currentBottomBar->MenuItems.size(); i++)
-    currentBottomBar->MenuItems[i]->DrawText(0, 1);
-
-  FontManager::Close();
-
-  // draw the menu textures
-  for (uint i = 0; i < currentMenu->MenuItems.size(); i++)
-    currentMenu->MenuItems[i]->DrawTexture(-transitionMoveDir * (1 - progressOut) * dist, trProgressOut);
-
-  // fade in transition effect
-  if (isTransitioning)
-    for (uint i = 0; i < nextMenu->MenuItems.size(); i++)
-      nextMenu->MenuItems[i]->DrawTexture(transitionMoveDir * (1 - progressIn) * dist, trProgressIn);
-
-  for (uint i = 0; i < currentBottomBar->MenuItems.size(); i++)
-    currentBottomBar->MenuItems[i]->DrawTexture(0, 1);
 }
 
 void DrawGUI() {
@@ -541,6 +570,10 @@ void DrawGUI() {
                MenuBackgroundColor.w);
   glClear(GL_COLOR_BUFFER_BIT);
 
+  // draw the backgroud image
+  //DrawHelper::DrawTexture(textureBackgroundId, 0, 0, menuWidth, menuHeight,
+  //                        {0.7f,0.7f,0.7f,1.0f}, 0.985f);
+
   // header
   DrawHelper::DrawTexture(textureWhiteId, 0, 0, menuWidth, HEADER_HEIGHT,
                           MenuBackgroundOverlayColor, 1);
@@ -551,13 +584,20 @@ void DrawGUI() {
   DrawHelper::DrawTexture(textureHeaderIconId, 0, 0, 75, 75, headerColor, 1);
 
   FontManager::Begin();
-  FontManager::RenderText(fontHeader, STR_HEADER, 75, HEADER_HEIGHT / 2 - fontHeader.FontSize / 2, 1.0f, headerColor, 1);
+  FontManager::RenderText(fontHeader,
+                          STR_HEADER,
+                          75,
+                          HEADER_HEIGHT / 2 - fontHeader.FontSize / 2,
+                          1.0f,
+                          headerColor,
+                          1);
 
   // update the battery string
   int batteryWidth = 10;
-  int maxHeight = fontBattery.FontSize;
+  int maxHeight = fontBattery.PHeight + 2;
+  int batteryOffset = fontBattery.PStart - 1;
   int distX = 22;
-  int distY = 18;
+  int distY = 16;
   GetBattryString(battery_string);
   FontManager::RenderText(fontBattery, battery_string,
                           menuWidth - batter_string_width - batteryWidth - 5 - distX, distY, 1.0f,
@@ -573,11 +613,21 @@ void DrawGUI() {
   FontManager::Close();
 
   // draw battery
-  DrawHelper::DrawTexture(textureWhiteId, menuWidth - batteryWidth - distX, distY, batteryWidth,
-                          maxHeight, BatteryBackgroundColor, 1);
-  int height = (int)(batteryLevel / 100.0 * maxHeight);
-  DrawHelper::DrawTexture(textureWhiteId, menuWidth - batteryWidth - distX, distY, batteryWidth,
-                          height, BatteryColor, 1);
+  DrawHelper::DrawTexture(textureWhiteId,
+                          menuWidth - batteryWidth - distX,
+                          distY + batteryOffset,
+                          batteryWidth,
+                          maxHeight,
+                          BatteryBackgroundColor,
+                          1);
+  int height = (int) (batteryLevel / 100.0 * maxHeight);
+  DrawHelper::DrawTexture(textureWhiteId,
+                          menuWidth - batteryWidth - distX,
+                          distY + batteryOffset + maxHeight - height,
+                          batteryWidth,
+                          height,
+                          BatteryColor,
+                          1);
 
   DrawMenu();
 
@@ -590,10 +640,7 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
     showExitDialog = false;
   }
 
-  if (vrFrame.Input.buttonState & button_mapping_menu && !(lastButtonState & button_mapping_menu) &&
-      loadedRom) {
-    menuOpen = !menuOpen;
-  }
+  buttonState = vrFrame.Input.buttonState;
 
   if (!menuOpen) {
     if (transitionPercentage > 0) transitionPercentage -= OPEN_MENU_SPEED;
@@ -604,35 +651,19 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
     if (transitionPercentage < 1) transitionPercentage += OPEN_MENU_SPEED;
     if (transitionPercentage > 1) transitionPercentage = 1;
 
-    UpdateMenu(vrFrame);
+    UpdateMenu();
   }
 
-  /*
-  LOG("orientation: %f, %f, %f, %f",
-  vrFrame.Tracking.HeadPose.Pose.Orientation.x,
-      vrFrame.Tracking.HeadPose.Pose.Orientation.y,
-  vrFrame.Tracking.HeadPose.Pose.Orientation.z,
-      vrFrame.Tracking.HeadPose.Pose.Orientation.w);
-
-  LOG("position: %f, %f, %f", vrFrame.Tracking.HeadPose.Pose.Position.x,
-      vrFrame.Tracking.HeadPose.Pose.Position.y,
-  vrFrame.Tracking.HeadPose.Pose.Position.z);
-  */
-
-  // Matrix4f mat = Matrix4f( vrFrame.Tracking.HeadPose.Pose );
-  // Vector3f pointerStart = mat.Transform( Vector3f( 0.0f ) );
-  // Vector3f pointerEnd = mat.Transform( Vector3f( 0.0f, 0.0f, -10.0f ) );
-
-  // controllerSurface.modelMatrix = mat * Matrix4f::RotationY( controllerYaw )
-  // * Matrix4f::RotationX( controllerPitch );
-
-  // Player movement.
-  // Scene.Frame(vrFrame);
+  // open/close menu
+  if (buttonState & button_mapping_menu && !(lastButtonState & button_mapping_menu) &&
+      loadedRom) {
+    menuOpen = !menuOpen;
+  }
 
   ovrFrameResult res;
 
   // Clear the eye buffers to 0 alpha so the overlay plane shows through.
-  res.ClearColor = Vector4f(1.0f, 1.0f, 1.0f, 1.0f);
+  res.ClearColor = Vector4f(0.0f, 0.0f, 0.0f, 1.0f);
   res.ClearColorBuffer = true;
 
   res.FrameIndex = vrFrame.FrameNumber;
@@ -642,32 +673,21 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
   res.FrameFlags = 0;
   res.LayerCount = 0;
 
-  // res.FrameMatrices.CenterView = CenterEyeViewMatrix;
-
-  /*
-  Scene.GetFrameMatrices(vrFrame.FovX, vrFrame.FovY, res.FrameMatrices);
-  Scene.GenerateFrameSurfaceList(res.FrameMatrices, res.Surfaces);
-
+  LayerBuilder::UpdateDirection(vrFrame);
 
   ovrLayerProjection2 &worldLayer = res.Layers[res.LayerCount++].Projection;
   worldLayer = vrapi_DefaultLayerProjection2();
-
   worldLayer.HeadPose = vrFrame.Tracking.HeadPose;
   for (int eye = 0; eye < VRAPI_FRAME_LAYER_EYE_MAX; eye++) {
-      worldLayer.Textures[eye].ColorSwapChain =
-  vrFrame.ColorTextureSwapChain[eye]; worldLayer.Textures[eye].SwapChainIndex =
-  vrFrame.TextureSwapChainIndex; worldLayer.Textures[eye].TexCoordsFromTanAngles
-  = vrFrame.TexCoordsFromTanAngles;
+    res.FrameMatrices.EyeView[eye] = vrFrame.Tracking.Eye[eye].ViewMatrix;
+    // Calculate projection matrix using custom near plane value.
+    res.FrameMatrices.EyeProjection[eye] =
+        ovrMatrix4f_CreateProjectionFov(vrFrame.FovX, vrFrame.FovY, 0.0f, 0.0f, 1.0f, 0.0f);
+
+    worldLayer.Textures[eye].ColorSwapChain = vrFrame.ColorTextureSwapChain[eye];
+    worldLayer.Textures[eye].SwapChainIndex = vrFrame.TextureSwapChainIndex;
+    worldLayer.Textures[eye].TexCoordsFromTanAngles = vrFrame.TexCoordsFromTanAngles;
   }
-
-  worldLayer.Header.Flags |=
-  VRAPI_FRAME_LAYER_FLAG_CHROMATIC_ABERRATION_CORRECTION;
-  */
-
-  // emulation screen layer
-  // Add a simple cylindrical layer
-
-  LayerBuilder::UpdateDirection(vrFrame);
 
   // virtual screen layer
   res.Layers[res.LayerCount].Cylinder =
@@ -676,15 +696,15 @@ ovrFrameResult OvrApp::Frame(const ovrFrameInput &vrFrame) {
 
   res.Layers[res.LayerCount].Cylinder.Header.Flags |=
       VRAPI_FRAME_LAYER_FLAG_CHROMATIC_ABERRATION_CORRECTION;
-  res.Layers[res.LayerCount].Cylinder.Header.SrcBlend = VRAPI_FRAME_LAYER_BLEND_ONE;
-  res.Layers[res.LayerCount].Cylinder.Header.DstBlend = VRAPI_FRAME_LAYER_BLEND_ZERO;
+  //res.Layers[res.LayerCount].Cylinder.Header.SrcBlend = VRAPI_FRAME_LAYER_BLEND_ONE;
+  //res.Layers[res.LayerCount].Cylinder.Header.DstBlend = VRAPI_FRAME_LAYER_BLEND_ZERO;
   res.LayerCount++;
 
   if (transitionPercentage > 0) {
     // menu layer
     if (menuOpen) DrawGUI();
 
-    float transitionP = sinf((transitionPercentage)*MATH_FLOAT_PIOVER2);
+    float transitionP = sinf((transitionPercentage) * MATH_FLOAT_PIOVER2);
 
     res.Layers[res.LayerCount].Cylinder = LayerBuilder::BuildSettingsCylinderLayer(
         MenuSwapChain, menuWidth, menuHeight, &vrFrame.Tracking, followHead, transitionP);
@@ -743,18 +763,18 @@ void OnClickLoadRomGame(MenuItem *item) { StartTransition(&romSelectionMenu, -1)
 
 void OnClickSettingsGame(MenuItem *item) { StartTransition(&settingsMenu, 1); }
 
-void UpdatePalettes(){
+void UpdatePalettes() {
   for (int i = 0; i < 4; ++i)
-    imagePalette[i]->Color = {  Emulator::palettes[Emulator::selectedPalette][i].red / 255.0f,
-                                Emulator::palettes[Emulator::selectedPalette][i].green / 255.0f,
-                                Emulator::palettes[Emulator::selectedPalette][i].blue / 255.0f,
-                                Emulator::palettes[Emulator::selectedPalette][i].alpha / 255.0f};
+    imagePalette[i]->Color = {Emulator::palettes[Emulator::selectedPalette][i].red / 255.0f,
+                              Emulator::palettes[Emulator::selectedPalette][i].green / 255.0f,
+                              Emulator::palettes[Emulator::selectedPalette][i].blue / 255.0f,
+                              Emulator::palettes[Emulator::selectedPalette][i].alpha / 255.0f};
 }
 
 void ChangePalette(MenuItem *item, int dir) {
   Emulator::ChangePalette(dir);
   UpdatePalettes();
-  ((MenuButton *)item)->Text = "Palette: " + to_string(Emulator::selectedPalette + 1);
+  ((MenuButton *) item)->Text = "Palette: " + to_string(Emulator::selectedPalette + 1);
 }
 
 void OnClickChangePaletteLeft(MenuItem *item) {
@@ -769,7 +789,7 @@ void OnClickChangePaletteRight(MenuItem *item) {
 
 void SetForceDMG(MenuItem *item, bool newForceDMG) {
   Emulator::forceDMG = newForceDMG;
-  ((MenuButton *)item)->Text = strForceDMG[Emulator::forceDMG ? 0 : 1];
+  ((MenuButton *) item)->Text = strForceDMG[Emulator::forceDMG ? 0 : 1];
 }
 
 void OnClickEmulatedModel(MenuItem *item) {
@@ -779,7 +799,7 @@ void OnClickEmulatedModel(MenuItem *item) {
 
 void OnClickFollowMode(MenuItem *item) {
   followHead = !followHead;
-  ((MenuButton *)item)->Text = strMove[followHead ? 0 : 1];
+  ((MenuButton *) item)->Text = strMove[followHead ? 0 : 1];
   SaveSettings();
 }
 
@@ -804,17 +824,12 @@ void OnClickBackMove(MenuItem *item) {
   SaveSettings();
 }
 
-void OnBackPressedMove() {
-  StartTransition(&settingsMenu, -1);
-  SaveSettings();
-}
-
 void ChangeSaveSlot(MenuItem *item, int dir) {
   saveSlot += dir;
   if (saveSlot < 0) saveSlot = MAX_SAVE_SLOTS - 1;
   if (saveSlot >= MAX_SAVE_SLOTS) saveSlot = 0;
   Emulator::UpdateStateImage(saveSlot);
-  ((MenuButton *)item)->Text = "Save Slot: " + to_string(saveSlot);
+  ((MenuButton *) item)->Text = "Save Slot: " + to_string(saveSlot);
 }
 
 void OnClickSaveSlotLeft(MenuItem *item) {
@@ -827,21 +842,21 @@ void OnClickSaveSlotRight(MenuItem *item) {
   SaveSettings();
 }
 
-float ToDegree(float radian) { return (int)(180.0 / VRAPI_PI * radian * 10) / 10.0f; }
+float ToDegree(float radian) { return (int) (180.0 / VRAPI_PI * radian * 10) / 10.0f; }
 
 void MoveYaw(MenuItem *item, float dir) {
   LayerBuilder::screenYaw -= dir;
-  ((MenuButton *)item)->Text = "Yaw: " + to_string(ToDegree(LayerBuilder::screenYaw)) + "°";
+  ((MenuButton *) item)->Text = "Yaw: " + to_string(ToDegree(LayerBuilder::screenYaw)) + "°";
 }
 
 void MovePitch(MenuItem *item, float dir) {
   LayerBuilder::screenPitch -= dir;
-  ((MenuButton *)item)->Text = "Pitch: " + to_string(ToDegree(LayerBuilder::screenPitch)) + "°";
+  ((MenuButton *) item)->Text = "Pitch: " + to_string(ToDegree(LayerBuilder::screenPitch)) + "°";
 }
 
 void MoveRoll(MenuItem *item, float dir) {
   LayerBuilder::screenRoll -= dir;
-  ((MenuButton *)item)->Text = "Roll: " + to_string(ToDegree(LayerBuilder::screenRoll)) + "°";
+  ((MenuButton *) item)->Text = "Roll: " + to_string(ToDegree(LayerBuilder::screenRoll)) + "°";
 }
 
 void ChangeDistance(MenuItem *item, float dir) {
@@ -850,7 +865,7 @@ void ChangeDistance(MenuItem *item, float dir) {
   if (LayerBuilder::radiusMenuScreen < MIN_DISTANCE) LayerBuilder::radiusMenuScreen = MIN_DISTANCE;
   if (LayerBuilder::radiusMenuScreen > MAX_DISTANCE) LayerBuilder::radiusMenuScreen = MAX_DISTANCE;
 
-  ((MenuButton *)item)->Text = "Distance: " + to_string(LayerBuilder::radiusMenuScreen);
+  ((MenuButton *) item)->Text = "Distance: " + to_string(LayerBuilder::radiusMenuScreen);
 }
 
 void ChangeScale(MenuItem *item, float dir) {
@@ -859,7 +874,7 @@ void ChangeScale(MenuItem *item, float dir) {
   if (LayerBuilder::screenSize < 0.5f) LayerBuilder::screenSize = 0.5f;
   if (LayerBuilder::screenSize > 2.0f) LayerBuilder::screenSize = 2.0f;
 
-  ((MenuButton *)item)->Text = "Scale: " + to_string(LayerBuilder::screenSize);
+  ((MenuButton *) item)->Text = "Scale: " + to_string(LayerBuilder::screenSize);
 }
 
 void OnClickResetView(MenuItem *item) {
@@ -875,76 +890,35 @@ void OnClickResetView(MenuItem *item) {
   SaveSettings();
 }
 
-void OnClickYaw(MenuItem *item){
+void OnClickYaw(MenuItem *item) {
   LayerBuilder::screenYaw = 0;
   MoveYaw(yawButton, 0);
   SaveSettings();
 }
 
-void OnClickPitch(MenuItem *item){
+void OnClickPitch(MenuItem *item) {
   LayerBuilder::screenPitch = 0;
   MovePitch(pitchButton, 0);
   SaveSettings();
 }
 
-void OnClickRoll(MenuItem *item){
+void OnClickRoll(MenuItem *item) {
   LayerBuilder::screenRoll = 0;
   MoveRoll(rollButton, 0);
   SaveSettings();
 }
 
-void OnClickDistance(MenuItem *item){
+void OnClickDistance(MenuItem *item) {
   LayerBuilder::radiusMenuScreen = 0.75f;
   ChangeDistance(distanceButton, 0);
   SaveSettings();
 }
 
-void OnClickScale(MenuItem *item){
+void OnClickScale(MenuItem *item) {
   LayerBuilder::screenSize = 1.0f;
   ChangeScale(scaleButton, 0);
   SaveSettings();
 }
-
-void MoveAButtonMapping(MenuItem *item, int dir) {
-  Emulator::ChangeButtonMapping(0, dir);
-  ((MenuButton *)item)->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[0]];
-}
-
-void MoveBButtonMapping(MenuItem *item, int dir) {
-  Emulator::ChangeButtonMapping(1, dir);
-  ((MenuButton *)item)->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[1]];
-}
-
-void SwapButtonSelectBack(MenuItem *item) {
-  SwappSelectBackButton = !SwappSelectBackButton;
-  ((MenuButton *)item)->Text = "Swap Select and Back: ";
-  ((MenuButton *)item)->Text.append((SwappSelectBackButton ? "Yes" : "No"));
-
-  SelectButton = SwappSelectBackButton ? BUTTON_B : BUTTON_A;
-  BackButton = SwappSelectBackButton ? BUTTON_A : BUTTON_B;
-
-  selectHelp->IconId = SwappSelectBackButton ? textureButtonBIconId : textureButtonAIconId;
-  backHelp->IconId = SwappSelectBackButton ? textureButtonAIconId : textureButtonBIconId;
-}
-
-void MoveMenuButtonMapping(MenuItem *item, int dir) {
-  button_mapping_menu_index += dir;
-  if (button_mapping_menu_index > 3) button_mapping_menu_index = 2;
-
-  button_mapping_menu = MapButtons[button_mapping_menu_index];
-  ((MenuButton *)item)->Text = "menu mapped to: " + MapButtonStr[button_mapping_menu_index];
-
-  menuHelp->IconId = button_mapping_menu_index == 2 ? textureButtonXIconId : textureButtonYIconId;
-}
-
-void OnClickChangeMenuButtonLeft(MenuItem *item) { MoveMenuButtonMapping(item, 1); }
-void OnClickChangeMenuButtonRight(MenuItem *item) { MoveMenuButtonMapping(item, 1); }
-
-void OnClickChangeAButtonLeft(MenuItem *item) { MoveAButtonMapping(item, -1); }
-void OnClickChangeAButtonRight(MenuItem *item) { MoveAButtonMapping(item, 1); }
-
-void OnClickChangeBButtonLeft(MenuItem *item) { MoveBButtonMapping(item, -1); }
-void OnClickChangeBButtonRight(MenuItem *item) { MoveBButtonMapping(item, 1); }
 
 void OnClickMoveScreenYawLeft(MenuItem *item) { MoveYaw(item, MoveSpeed); }
 
@@ -965,6 +939,140 @@ void OnClickMoveScreenDistanceRight(MenuItem *item) { ChangeDistance(item, -Zoom
 void OnClickMoveScreenScaleLeft(MenuItem *item) { ChangeScale(item, MoveSpeed); }
 
 void OnClickMoveScreenScaleRight(MenuItem *item) { ChangeScale(item, -MoveSpeed); }
+
+void SwapButtonSelectBack(MenuItem *item) {
+  SwappSelectBackButton = !SwappSelectBackButton;
+  ((MenuButton *) item)->Text = "Swap Select and Back: ";
+  ((MenuButton *) item)->Text.append((SwappSelectBackButton ? "Yes" : "No"));
+
+  SelectButton = SwappSelectBackButton ? BUTTON_B : BUTTON_A;
+  BackButton = SwappSelectBackButton ? BUTTON_A : BUTTON_B;
+
+  selectHelp->IconId = SwappSelectBackButton ? textureButtonBIconId : textureButtonAIconId;
+  backHelp->IconId = SwappSelectBackButton ? textureButtonAIconId : textureButtonBIconId;
+}
+
+int GetPressedButton(int &_buttonState, int &_lastButtonState) {
+  if (_buttonState & BUTTON_A && !(_lastButtonState & BUTTON_A)) {
+    return 0;
+  }
+  if (_buttonState & BUTTON_B && !(_lastButtonState & BUTTON_B)) {
+    return 1;
+  }
+  if (_buttonState & BUTTON_X && !(_lastButtonState & BUTTON_X)) {
+    return 2;
+  }
+  if (_buttonState & BUTTON_Y && !(_lastButtonState & BUTTON_Y)) {
+    return 3;
+  }
+
+  return -1;
+}
+
+void MoveMenuButtonMapping(MenuItem *item, int dir) {
+  button_mapping_menu_index += dir;
+  if (button_mapping_menu_index > 3) button_mapping_menu_index = 2;
+
+  button_mapping_menu = MapButtons[button_mapping_menu_index];
+  ((MenuButton *) item)->Text = "menu mapped to: " + MapButtonStr[button_mapping_menu_index];
+
+  menuHelp->IconId = button_mapping_menu_index == 2 ? textureButtonXIconId : textureButtonYIconId;
+}
+
+// mapping functions
+void MoveAButtonMapping(MenuItem *item, int dir) {
+  Emulator::ChangeButtonMapping(0, dir);
+  ((MenuButton *) item)->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[0]];
+}
+
+void MoveBButtonMapping(MenuItem *item, int dir) {
+  Emulator::ChangeButtonMapping(1, dir);
+  ((MenuButton *) item)->Text = "mapped to: " + MapButtonStr[Emulator::button_mapping_index[1]];
+}
+
+void UpdateMenuMapping() {
+  button_mapping_menu = MapButtons[button_mapping_menu_index];
+  mappedButton->Text = "menu mapped to: " + MapButtonStr[button_mapping_menu_index];
+}
+
+void UpdateEmulatorMapping() {
+  Emulator::UpdateButtonMapping();
+  mappedButton->Text = "mapped to: " + MapButtonStr[*remapButton];
+}
+
+void OnClickChangeMenuButtonLeft(MenuItem *item) { MoveMenuButtonMapping(item, 1); }
+void OnClickChangeMenuButtonRight(MenuItem *item) { MoveMenuButtonMapping(item, 1); }
+void OnClickChangeMenuButtonEnter(MenuItem *item) {
+  UpdateMapping = true;
+  remapButton = &button_mapping_menu_index;
+  mappedButton = menuMappingButton;
+  updateMappingText = UpdateMenuMapping;
+
+  possibleMappingIndices.clear();
+  possibleMappingIndices.push_back(2);
+  possibleMappingIndices.push_back(3);
+
+  mappingButtonLabel->SetText("Menu Button");
+  possibleMappingLabel->SetText("(X, Y)");
+}
+
+void OnClickChangeAButtonLeft(MenuItem *item) { MoveAButtonMapping(item, -1); }
+void OnClickChangeAButtonRight(MenuItem *item) { MoveAButtonMapping(item, 1); }
+void OnClickChangeAButtonEnter(MenuItem *item) {
+  UpdateMapping = true;
+  remapButton = &Emulator::button_mapping_index[0];
+  mappedButton = buttonMapping[0];
+  updateMappingText = UpdateEmulatorMapping;
+
+  possibleMappingIndices.clear();
+  possibleMappingIndices.push_back(0);
+  possibleMappingIndices.push_back(1);
+  possibleMappingIndices.push_back(2);
+  possibleMappingIndices.push_back(3);
+
+  mappingButtonLabel->SetText("A Button");
+  possibleMappingLabel->SetText("(A, B, X, Y)");
+}
+
+void OnClickChangeBButtonLeft(MenuItem *item) { MoveBButtonMapping(item, -1); }
+void OnClickChangeBButtonRight(MenuItem *item) { MoveBButtonMapping(item, 1); }
+void OnClickChangeBButtonEnter(MenuItem *item) {
+  UpdateMapping = true;
+  remapButton = &Emulator::button_mapping_index[1];
+  mappedButton = buttonMapping[1];
+  updateMappingText = UpdateEmulatorMapping;
+
+  possibleMappingIndices.clear();
+  possibleMappingIndices.push_back(0);
+  possibleMappingIndices.push_back(1);
+  possibleMappingIndices.push_back(2);
+  possibleMappingIndices.push_back(3);
+
+  mappingButtonLabel->SetText("B Button");
+  possibleMappingLabel->SetText("(A, B, X, Y)");
+}
+
+void UpdateButtonMapping(MenuItem *item, int &_buttonState, int &_lastButtonState) {
+  if (UpdateMapping) {
+    int newButtonState = GetPressedButton(_buttonState, _lastButtonState);
+
+    for (int i = 0; i < possibleMappingIndices.size(); ++i) {
+      if (newButtonState == possibleMappingIndices.at(i)) {
+        UpdateMapping = false;
+        *remapButton = newButtonState;
+        updateMappingText();
+      }
+    }
+
+    _buttonState = 0;
+    _lastButtonState = 0;
+  }
+}
+
+void OnBackPressedMove() {
+  StartTransition(&settingsMenu, -1);
+  SaveSettings();
+}
 
 void OnClickExit(MenuItem *item) {
   Emulator::SaveRam();
@@ -987,7 +1095,10 @@ void OnClickBackMainMenu() {
 }
 
 void OvrApp::SetUpMenu() {
-  menuItemSize = (fontMenu.FontSize + 10);
+  int bigGap = 10;
+  int smallGap = 5;
+
+  menuItemSize = (fontMenu.FontSize + 4);
   strVersionWidth = GetWidth(fontSmall, STR_VERSION);
 
   romSelectionMenu.CurrentSelection = 0;
@@ -999,12 +1110,33 @@ void OvrApp::SetUpMenu() {
   romSelectionMenu.Init();
 
   menuHelp = new MenuButton(&fontBottom,
-      button_mapping_menu_index == 2 ? textureButtonXIconId : textureButtonYIconId, "Close Menu",
-      7, menuHeight - fontBottom.FontSize - 7, nullptr, nullptr, nullptr);
-  backHelp = new MenuButton(&fontBottom, SwappSelectBackButton ? textureButtonAIconId : textureButtonBIconId, "Back", menuWidth - 210,
-                            menuHeight - fontBottom.FontSize - 7, nullptr, nullptr, nullptr);
-  selectHelp = new MenuButton(&fontBottom,SwappSelectBackButton ? textureButtonBIconId : textureButtonAIconId, "Select", menuWidth - 110,
-                              menuHeight - fontBottom.FontSize - 7, nullptr, nullptr, nullptr);
+                            button_mapping_menu_index == 2 ? textureButtonXIconId
+                                                           : textureButtonYIconId,
+                            "Close Menu",
+                            7,
+                            menuHeight - BOTTOM_HEIGHT,
+                            BOTTOM_HEIGHT,
+                            nullptr,
+                            nullptr,
+                            nullptr);
+  backHelp = new MenuButton(&fontBottom,
+                            SwappSelectBackButton ? textureButtonAIconId : textureButtonBIconId,
+                            "Back",
+                            menuWidth - 210,
+                            menuHeight - BOTTOM_HEIGHT,
+                            BOTTOM_HEIGHT,
+                            nullptr,
+                            nullptr,
+                            nullptr);
+  selectHelp = new MenuButton(&fontBottom,
+                              SwappSelectBackButton ? textureButtonBIconId : textureButtonAIconId,
+                              "Select",
+                              menuWidth - 110,
+                              menuHeight - BOTTOM_HEIGHT,
+                              BOTTOM_HEIGHT,
+                              nullptr,
+                              nullptr,
+                              nullptr);
 
   bottomBar.MenuItems.push_back(backHelp);
   bottomBar.MenuItems.push_back(selectHelp);
@@ -1014,39 +1146,61 @@ void OvrApp::SetUpMenu() {
   // main menu page
   int posX = 20;
   int posY = HEADER_HEIGHT + 20;
-  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureResumeId, "Resume Game", posX, posY,
+  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu, textureResumeId, "Resume Game", posX, posY,
                                               OnClickResumGame, nullptr, nullptr));
-  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureResetIconId, "Reset Game", posX,
+  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu, textureResetIconId, "Reset Game", posX,
                                               posY += menuItemSize, OnClickResetGame, nullptr,
                                               nullptr));
-  slotButton = new MenuButton(&fontMenu,textureSaveSlotIconId, "", posX, posY += menuItemSize + 10,
+  slotButton = new MenuButton(&fontMenu, textureSaveSlotIconId, "", posX, posY += menuItemSize + 10,
                               OnClickSaveSlotRight, OnClickSaveSlotLeft, OnClickSaveSlotRight);
   ChangeSaveSlot(slotButton, 0);
   mainMenu.MenuItems.push_back(slotButton);
-  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureSaveIconId, "Save", posX, posY += menuItemSize,
-                                              OnClickSaveGame, nullptr, nullptr));
-  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureLoadIconId, "Load", posX, posY += menuItemSize,
-                                              OnClickLoadGame, nullptr, nullptr));
-  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureLoadRomIconId, "Load Rom", posX,
+  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu,
+                                              textureSaveIconId,
+                                              "Save",
+                                              posX,
+                                              posY += menuItemSize,
+                                              OnClickSaveGame,
+                                              nullptr,
+                                              nullptr));
+  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu,
+                                              textureLoadIconId,
+                                              "Load",
+                                              posX,
+                                              posY += menuItemSize,
+                                              OnClickLoadGame,
+                                              nullptr,
+                                              nullptr));
+  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu, textureLoadRomIconId, "Load Rom", posX,
                                               posY += menuItemSize + 10, OnClickLoadRomGame,
                                               nullptr, nullptr));
-  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureSettingsId, "Settings", posX,
+  mainMenu.MenuItems.push_back(new MenuButton(&fontMenu, textureSettingsId, "Settings", posX,
                                               posY += menuItemSize, OnClickSettingsGame, nullptr,
                                               nullptr));
   mainMenu.MenuItems.push_back(new MenuButton(&fontMenu,
-      textureExitIconId, "Exit", posX, posY += menuItemSize + 10, OnClickExit, nullptr, nullptr));
+                                              textureExitIconId,
+                                              "Exit",
+                                              posX,
+                                              posY += menuItemSize + 10,
+                                              OnClickExit,
+                                              nullptr,
+                                              nullptr));
 
   // background
   mainMenu.MenuItems.push_back(new MenuImage(textureWhiteId, menuWidth - 320 - 20 - 5,
                                              HEADER_HEIGHT + 20 - 5, 320 + 10, 288 + 10,
                                              MenuBackgroundOverlayColor));
+  emptySlotLabel = new MenuLabel(&fontSlot, "- Empty Slot -", menuWidth - 320 - 20,
+                                 HEADER_HEIGHT + 20, 320, 288, {1.0f, 1.0f, 1.0f, 1.0f});
+  noImageSlotLabel = new MenuLabel(&fontSlot, "- -", menuWidth - 320 - 20,
+                                 HEADER_HEIGHT + 20, 320, 288, {1.0f, 1.0f, 1.0f, 1.0f});
+  mainMenu.MenuItems.push_back(emptySlotLabel);
+  mainMenu.MenuItems.push_back(noImageSlotLabel);
+
   // image slot
   mainMenu.MenuItems.push_back(new MenuImage(Emulator::stateImageId, menuWidth - 320 - 20,
                                              HEADER_HEIGHT + 20, 320, 288,
                                              {1.0f, 1.0f, 1.0f, 1.0f}));
-  emptySlotLabel = new MenuLabel(&fontSlot, "--Empty Slot--", menuWidth - 320 - 20,
-                                 HEADER_HEIGHT + 20, 320, 288, {1.0f, 1.0f, 1.0f, 1.0f});
-  mainMenu.MenuItems.push_back(emptySlotLabel);
 
   mainMenu.Init();
   mainMenu.BackPress = OnClickBackMainMenu;
@@ -1054,40 +1208,58 @@ void OvrApp::SetUpMenu() {
   // settings page
   posY = HEADER_HEIGHT + 20;
 
-  settingsMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureMappingIconId, "Button Mapping", posX,
-                                                  posY, OnClickMappingScreen, nullptr, nullptr));
-  settingsMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureMoveIconId, "Move Screen", posX,
+  settingsMenu.MenuItems.push_back(new MenuButton(&fontMenu,
+                                                  textureMappingIconId,
+                                                  "Button Mapping",
+                                                  posX,
+                                                  posY,
+                                                  OnClickMappingScreen,
+                                                  nullptr,
+                                                  nullptr));
+  settingsMenu.MenuItems.push_back(new MenuButton(&fontMenu, textureMoveIconId, "Move Screen", posX,
                                                   posY += menuItemSize, OnClickMoveScreen, nullptr,
                                                   nullptr));
   settingsMenu.MenuItems.push_back(new MenuButton(&fontMenu,
-      textureFollowHeadIconId, strMove[followHead ? 0 : 1], posX, posY += menuItemSize + 5,
-      OnClickFollowMode, OnClickFollowMode, OnClickFollowMode));
+                                                  textureFollowHeadIconId,
+                                                  strMove[followHead ? 0 : 1],
+                                                  posX,
+                                                  posY += menuItemSize + bigGap,
+                                                  OnClickFollowMode,
+                                                  OnClickFollowMode,
+                                                  OnClickFollowMode));
 
   MenuContainer *menuContainer = new MenuContainer();
-  MenuButton *paletteButton = new MenuButton(&fontMenu,texturePaletteIconId, "", posX, posY += menuItemSize,
-                                             OnClickChangePaletteRight, OnClickChangePaletteLeft,
-                                             OnClickChangePaletteRight);
+  MenuButton *paletteButton =
+      new MenuButton(&fontMenu, texturePaletteIconId, "", posX, posY += menuItemSize,
+                     OnClickChangePaletteRight, OnClickChangePaletteLeft,
+                     OnClickChangePaletteRight);
   menuContainer->MenuItems.push_back(paletteButton);
   for (int i = 0; i < 4; ++i) {
     imagePalette[i] = new MenuImage(textureWhiteId,
-                                    posX + fontMenu.FontSize * i + 170,
-                                    posY,
-                                    fontMenu.FontSize,
-                                    fontMenu.FontSize,
+                                    posX + (18) * i + 157,
+                                    posY + fontMenu.FontSize / 2 - 9,
+                                    18,
+                                    18,
                                     {0.0f, 0.0f, 0.0f, 0.0f});
     menuContainer->MenuItems.push_back(imagePalette[i]);
   }
   UpdatePalettes();
 
   MenuButton *dmgButton =
-      new MenuButton(&fontMenu,textureDMGIconId, "", posX, posY += menuItemSize, OnClickEmulatedModel,
-                     OnClickEmulatedModel, OnClickEmulatedModel);
+      new MenuButton(&fontMenu,
+                     textureDMGIconId,
+                     "",
+                     posX,
+                     posY += menuItemSize,
+                     OnClickEmulatedModel,
+                     OnClickEmulatedModel,
+                     OnClickEmulatedModel);
 
   settingsMenu.MenuItems.push_back(menuContainer);
 
   settingsMenu.MenuItems.push_back(dmgButton);
-  settingsMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureBackIconId, "Back", posX,
-                                                  posY += menuItemSize + 5, OnClickBackAndSave,
+  settingsMenu.MenuItems.push_back(new MenuButton(&fontMenu, textureBackIconId, "Back", posX,
+                                                  posY += menuItemSize + bigGap, OnClickBackAndSave,
                                                   nullptr, nullptr));
 
   // state screenshot background
@@ -1109,50 +1281,113 @@ void OvrApp::SetUpMenu() {
   posY = HEADER_HEIGHT + 20;
 
   MenuButton *swapButton =
-      new MenuButton(&fontMenu,textureLoadRomIconId, "", posX, posY, SwapButtonSelectBack,
+      new MenuButton(&fontMenu, textureLoadRomIconId, "", posX, posY, SwapButtonSelectBack,
                      SwapButtonSelectBack, SwapButtonSelectBack);
-  MenuButton *menuButton =
-      new MenuButton(&fontMenu,textureLoadRomIconId, "", posX, posY += menuItemSize + 5, OnClickChangeMenuButtonRight,
-                     OnClickChangeMenuButtonLeft, OnClickChangeMenuButtonRight);
-  MenuButton *aButton = new MenuButton(&fontMenu,textureButtonAIconId, "", posX, posY += menuItemSize + 5,
-                                       OnClickChangeAButtonRight, OnClickChangeAButtonLeft,
-                                       OnClickChangeAButtonRight);
-  MenuButton *bButton = new MenuButton(&fontMenu,textureButtonBIconId, "", posX, posY += menuItemSize,
-                                       OnClickChangeBButtonRight, OnClickChangeBButtonLeft,
-                                       OnClickChangeBButtonRight);
+  menuMappingButton =
+      new MenuButton(&fontMenu,
+                     textureLoadRomIconId,
+                     "",
+                     posX,
+                     posY += menuItemSize,
+                     OnClickChangeMenuButtonEnter,
+                     OnClickChangeMenuButtonLeft,
+                     OnClickChangeMenuButtonRight);
+
+  buttonMapping[0] =
+      new MenuButton(&fontMenu, textureButtonAIconId, "", posX, posY += menuItemSize + smallGap,
+                     OnClickChangeAButtonEnter, OnClickChangeAButtonLeft,
+                     OnClickChangeAButtonRight);
+  buttonMapping[0]->UpdateFunction = UpdateButtonMapping;
+  buttonMapping[1] = new MenuButton(&fontMenu, textureButtonBIconId, "", posX, posY += menuItemSize,
+                                    OnClickChangeBButtonEnter, OnClickChangeBButtonLeft,
+                                    OnClickChangeBButtonRight);
 
   SwapButtonSelectBack(swapButton);
   SwapButtonSelectBack(swapButton);
-  MoveMenuButtonMapping(menuButton, 0);
-  MoveAButtonMapping(aButton, 0);
-  MoveBButtonMapping(bButton, 0);
+  MoveMenuButtonMapping(menuMappingButton, 0);
+  MoveAButtonMapping(buttonMapping[0], 0);
+  MoveBButtonMapping(buttonMapping[1], 0);
 
   buttonMapMenu.MenuItems.push_back(swapButton);
-  buttonMapMenu.MenuItems.push_back(menuButton);
-  buttonMapMenu.MenuItems.push_back(aButton);
-  buttonMapMenu.MenuItems.push_back(bButton);
-  buttonMapMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureBackIconId, "Back", posX,
-                                                   posY += menuItemSize + 5, OnClickBackMove,
+  buttonMapMenu.MenuItems.push_back(menuMappingButton);
+  buttonMapMenu.MenuItems.push_back(buttonMapping[0]);
+  buttonMapMenu.MenuItems.push_back(buttonMapping[1]);
+  buttonMapMenu.MenuItems.push_back(new MenuButton(&fontMenu, textureBackIconId, "Back", posX,
+                                                   posY += menuItemSize + bigGap, OnClickBackMove,
                                                    nullptr, nullptr));
   buttonMapMenu.BackPress = OnBackPressedMove;
   buttonMapMenu.Init();
 
+  // button mapping overlay
+  buttonMappingOverlay.MenuItems.push_back(new MenuImage(textureWhiteId,
+                                                         0,
+                                                         0,
+                                                         menuWidth,
+                                                         menuHeight,
+                                                         {0.0f, 0.0f, 0.0f, 0.8f}));
+  int overlayWidth = 250;
+  int overlayHeight = 80;
+  int margin = 15;
+  buttonMappingOverlay.MenuItems.push_back(new MenuImage(textureWhiteId,
+                                                         menuWidth / 2 - overlayWidth / 2,
+                                                         menuHeight / 2 - overlayHeight / 2
+                                                             - margin,
+                                                         overlayWidth,
+                                                         overlayHeight + margin * 2,
+                                                         {0.05f, 0.05f, 0.05f, 0.3f}));
+
+  mappingButtonLabel = new MenuLabel(&fontMenu,
+                                     "A Button",
+                                     menuWidth / 2 - overlayWidth / 2,
+                                     menuHeight / 2 - overlayHeight / 2,
+                                     overlayWidth,
+                                     overlayHeight / 3,
+                                     {0.9f, 0.9f, 0.9f, 0.9f});
+  possibleMappingLabel = new MenuLabel(&fontMenu,
+                                       "(A, B, X, Y)",
+                                       menuWidth / 2 - overlayWidth / 2,
+                                       menuHeight / 2 + overlayHeight / 2
+                                           - overlayHeight / 3,
+                                       overlayWidth,
+                                       overlayHeight / 3,
+                                       {0.9f, 0.9f, 0.9f, 0.9f});
+
+  buttonMappingOverlay.MenuItems.push_back(mappingButtonLabel);
+  buttonMappingOverlay.MenuItems.push_back(new MenuLabel(&fontMenu,
+                                                         "Press Button",
+                                                         menuWidth / 2 - overlayWidth / 2,
+                                                         menuHeight / 2 - overlayHeight / 2
+                                                             + overlayHeight / 3,
+                                                         overlayWidth,
+                                                         overlayHeight / 3,
+                                                         {0.9f, 0.9f, 0.9f, 0.9f}));
+  buttonMappingOverlay.MenuItems.push_back(possibleMappingLabel);
+
   // move menu page
   posY = HEADER_HEIGHT + 20;
-  yawButton = new MenuButton(&fontMenu,texuterLeftRightIconId, "", posX, posY, OnClickYaw,
+  yawButton = new MenuButton(&fontMenu, texuterLeftRightIconId, "", posX, posY, OnClickYaw,
                              OnClickMoveScreenYawLeft, OnClickMoveScreenYawRight);
   yawButton->ScrollTimeH = 1;
-  pitchButton = new MenuButton(&fontMenu,textureUpDownIconId, "", posX, posY += menuItemSize, OnClickPitch,
-                               OnClickMoveScreenPitchLeft, OnClickMoveScreenPitchRight);
+  pitchButton =
+      new MenuButton(&fontMenu, textureUpDownIconId, "", posX, posY += menuItemSize, OnClickPitch,
+                     OnClickMoveScreenPitchLeft, OnClickMoveScreenPitchRight);
   pitchButton->ScrollTimeH = 1;
-  rollButton = new MenuButton(&fontMenu,textureResetIconId, "", posX, posY += menuItemSize, OnClickRoll,
-                              OnClickMoveScreenRollLeft, OnClickMoveScreenRollRight);
+  rollButton =
+      new MenuButton(&fontMenu, textureResetIconId, "", posX, posY += menuItemSize, OnClickRoll,
+                     OnClickMoveScreenRollLeft, OnClickMoveScreenRollRight);
   rollButton->ScrollTimeH = 1;
-  distanceButton = new MenuButton(&fontMenu,textureDistanceIconId, "", posX, posY += menuItemSize, OnClickDistance,
-                                  OnClickMoveScreenDistanceLeft, OnClickMoveScreenDistanceRight);
+  distanceButton = new MenuButton(&fontMenu,
+                                  textureDistanceIconId,
+                                  "",
+                                  posX,
+                                  posY += menuItemSize,
+                                  OnClickDistance,
+                                  OnClickMoveScreenDistanceLeft,
+                                  OnClickMoveScreenDistanceRight);
   distanceButton->ScrollTimeH = 1;
-  scaleButton = new MenuButton(&fontMenu,textureScaleIconId, "", posX, posY += menuItemSize, OnClickScale,
-                               OnClickMoveScreenScaleLeft, OnClickMoveScreenScaleRight);
+  scaleButton =
+      new MenuButton(&fontMenu, textureScaleIconId, "", posX, posY += menuItemSize, OnClickScale,
+                     OnClickMoveScreenScaleLeft, OnClickMoveScreenScaleRight);
   scaleButton->ScrollTimeH = 1;
 
   moveMenu.MenuItems.push_back(yawButton);
@@ -1161,11 +1396,21 @@ void OvrApp::SetUpMenu() {
   moveMenu.MenuItems.push_back(distanceButton);
   moveMenu.MenuItems.push_back(scaleButton);
 
-  moveMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureResetViewIconId, "Reset View", posX,
-                                              posY += menuItemSize + 5, OnClickResetView, nullptr,
+  moveMenu.MenuItems.push_back(new MenuButton(&fontMenu,
+                                              textureResetViewIconId,
+                                              "Reset View",
+                                              posX,
+                                              posY += menuItemSize + smallGap,
+                                              OnClickResetView,
+                                              nullptr,
                                               nullptr));
-  moveMenu.MenuItems.push_back(new MenuButton(&fontMenu,textureBackIconId, "Back", posX,
-                                              posY += menuItemSize + 5, OnClickBackMove, nullptr,
+  moveMenu.MenuItems.push_back(new MenuButton(&fontMenu,
+                                              textureBackIconId,
+                                              "Back",
+                                              posX,
+                                              posY += menuItemSize + bigGap,
+                                              OnClickBackMove,
+                                              nullptr,
                                               nullptr));
   moveMenu.BackPress = OnBackPressedMove;
   moveMenu.Init();

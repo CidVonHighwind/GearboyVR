@@ -17,23 +17,25 @@ class MenuItem {
   int ScrollTimeV = 5;
   int ScrollTimeH = 5;
 
-  void (*UpdateFunction)(MenuItem *item) = nullptr;
+  void (*UpdateFunction)(MenuItem *item, int &buttonState, int &lastButtonState) = nullptr;
 
   virtual ~MenuItem() {}
+
+  virtual void Update(int &buttonState, int &lastButtonState) {
+    if (UpdateFunction != nullptr) UpdateFunction(this, buttonState, lastButtonState);
+  }
 
   virtual int PressedUp() { return 0; }
   virtual int PressedDown() { return 0; }
   virtual int PressedLeft() { return 0; }
   virtual int PressedRight() { return 0; }
   virtual int PressedEnter() { return 0; }
+
   virtual void Select() { Selected = true; }
   virtual void Unselect() { Selected = false; }
 
-  virtual void Update() {
-    if (UpdateFunction != nullptr) UpdateFunction(this);
-  }
-  virtual void DrawText(float offsetX, float transparency) {}
-  virtual void DrawTexture(float offsetX, float transparency) {}
+  virtual void DrawText(float offsetX, float offsetY, float transparency) {}
+  virtual void DrawTexture(float offsetX, float offsetY, float transparency) {}
 };
 
 class MenuLabel : public MenuItem {
@@ -41,15 +43,27 @@ class MenuLabel : public MenuItem {
   MenuLabel(FontManager::RenderFont *font, std::string text, int posX, int posY, int width,
             int height, ovrVector4f color) {
     Font = font;
-    Text = text;
-    // center text
-    int textWidth = FontManager::GetWidth(*font, text);
-    PosX = posX + width / 2 - textWidth / 2;
-    PosY = posY + height / 2 - font->FontSize;
     Color = color;
+
+    containerX = posX;
+    containerY = posY;
+    containerWidth = width;
+    containerHeight = height;
+
+    SetText(text);
+  }
+
+  void SetText(std::string newText){
+    Text = newText;
+    // center text
+    int textWidth = FontManager::GetWidth(*Font, newText);
+    PosX = containerX + containerWidth / 2 - textWidth / 2;
+    PosY = containerY + containerHeight / 2 - Font->PHeight / 2 - Font->PStart;
   }
 
   virtual ~MenuLabel() {}
+
+  int containerX, containerY, containerWidth, containerHeight;
 
   FontManager::RenderFont *Font;
 
@@ -57,7 +71,7 @@ class MenuLabel : public MenuItem {
 
   std::string Text;
 
-  virtual void DrawText(float offsetX, float transparency) override;
+  virtual void DrawText(float offsetX, float offsetY, float transparency) override;
 };
 
 class MenuImage : public MenuItem {
@@ -79,7 +93,7 @@ class MenuImage : public MenuItem {
 
   virtual ~MenuImage() {}
 
-  virtual void DrawTexture(float offsetX, float transparency) override;
+  virtual void DrawTexture(float offsetX, float offsetY, float transparency) override;
 };
 
 class MenuButton : public MenuItem {
@@ -89,6 +103,20 @@ class MenuButton : public MenuItem {
              void (*rightFunction)(MenuItem *item)) {
     PosX = posX;
     PosY = posY;
+    IconId = iconId;
+    Text = text;
+    Font = font;
+    PressFunction = pressFunction;
+    LeftFunction = leftFunction;
+    RightFunction = rightFunction;
+    Selectable = true;
+  }
+
+  MenuButton(FontManager::RenderFont *font, GLuint iconId, std::string text, int posX, int posY,
+             int height, void (*pressFunction)(MenuItem *item), void (*leftFunction)(MenuItem *item),
+             void (*rightFunction)(MenuItem *item)) {
+    PosX = posX;
+    PosY = posY + (int)(height / 2.0f - font->PHeight / 2.0f) - font->PStart;
     IconId = iconId;
     Text = text;
     Font = font;
@@ -134,9 +162,9 @@ class MenuButton : public MenuItem {
     return 0;
   }
 
-  virtual void DrawText(float offsetX, float transparency) override;
+  virtual void DrawText(float offsetX, float offsetY, float transparency) override;
 
-  virtual void DrawTexture(float offsetX, float transparency) override;
+  virtual void DrawTexture(float offsetX, float offsetY, float transparency) override;
 };
 
 class MenuContainer : public MenuItem {
@@ -153,9 +181,9 @@ class MenuContainer : public MenuItem {
 
   virtual int PressedEnter() override { return MenuItems.at(0)->PressedEnter(); }
 
-  virtual void DrawText(float offsetX, float transparency) override;
+  virtual void DrawText(float offsetX, float offsetY, float transparency) override;
 
-  virtual void DrawTexture(float offsetX, float transparency) override;
+  virtual void DrawTexture(float offsetX, float offsetY, float transparency) override;
 
   virtual void Select() override {
     for (int i = 0; i < MenuItems.size(); ++i) {
@@ -183,8 +211,8 @@ class MenuList : public MenuItem {
     Width = width;
     Height = height;
 
-    listItemSize = (font->FontSize + 14);
-    itemOffsetY = 7;
+    listItemSize = (font->FontSize + 8);
+    itemOffsetY = 4;
     maxListItems = height / listItemSize;
     scrollbarHeight = height;
     listStartY = posY + (scrollbarHeight - (maxListItems * listItemSize)) / 2;
@@ -201,7 +229,7 @@ class MenuList : public MenuItem {
 
   int maxListItems = 0;
   int Width = 0, Height = 0;
-  int scrollbarWidth = 12, scrollbarHeight = 0;
+  int scrollbarWidth = 14, scrollbarHeight = 0;
   int listItemSize = 0;
   int itemOffsetY = 0;
   int listStartY = 0;
@@ -229,7 +257,7 @@ class MenuList : public MenuItem {
     return 1;
   }
 
-  virtual void Update() override {
+  virtual void Update(int &buttonState, int &lastButtonState) override {
     // scroll the list to the current Selection
     if (CurrentSelection - 2 < menuListState && menuListState > 0) {
       menuListState--;
@@ -264,9 +292,9 @@ class MenuList : public MenuItem {
   }
    */
 
-  virtual void DrawText(float offsetX, float transparency) override;
+  virtual void DrawText(float offsetX, float offsetY, float transparency) override;
 
-  virtual void DrawTexture(float offsetX, float transparency) override;
+  virtual void DrawTexture(float offsetX, float offsetY, float transparency) override;
 };
 
 class Menu {
@@ -281,8 +309,8 @@ class Menu {
 
   void Init() { MenuItems[CurrentSelection]->Select(); }
 
-  bool ButtonPressed(int buttonState, int lastButtonState, int button) {
-    return buttonState & button && (!(lastButtonState & button) ||
+  bool ButtonPressed(int &buttonState, int &lastButtonState, int button) {
+    return (buttonState & button) && (!(lastButtonState & button) ||
                                     buttonDownCount > MenuItems[CurrentSelection]->ScrollDelay);
   }
 
@@ -296,9 +324,8 @@ class Menu {
     } while (!MenuItems[CurrentSelection]->Selectable);
   }
 
-  void Update(int buttonState, int lastButtonState) {
+  void Update(int &buttonState, int &lastButtonState) {
     MenuItems[CurrentSelection]->Unselect();
-    // MenuItems[CurrentSelection]->Selected = false;
 
     // could be done with a single &
     if (buttonState & BUTTON_LSTICK_UP || buttonState & BUTTON_DPAD_UP ||
@@ -308,6 +335,36 @@ class Menu {
       buttonDownCount++;
     } else {
       buttonDownCount = 0;
+    }
+
+    for (int i = 0; i < MenuItems.size(); ++i) {
+      MenuItems[i]->Update(buttonState, lastButtonState);
+    }
+
+    if (ButtonPressed(buttonState, lastButtonState, BUTTON_LSTICK_LEFT) ||
+        ButtonPressed(buttonState, lastButtonState, BUTTON_DPAD_LEFT)) {
+      buttonDownCount -= MenuItems[CurrentSelection]->ScrollTimeH;
+      if (MenuItems[CurrentSelection]->PressedLeft() != 0) {
+        buttonState = 0;
+      }
+    }
+
+    if (ButtonPressed(buttonState, lastButtonState, BUTTON_LSTICK_RIGHT) ||
+        ButtonPressed(buttonState, lastButtonState, BUTTON_DPAD_RIGHT)) {
+      buttonDownCount -= MenuItems[CurrentSelection]->ScrollTimeH;
+      if (MenuItems[CurrentSelection]->PressedRight() != 0) {
+        buttonState = 0;
+      }
+    }
+
+    if (ButtonPressed(buttonState, lastButtonState, SelectButton)) {
+      buttonDownCount -= MenuItems[CurrentSelection]->ScrollTimeH;
+      if (MenuItems[CurrentSelection]->PressedEnter() != 0) {
+        buttonState = 0;
+      }
+    }
+    else if (buttonState & BackButton && !(lastButtonState & BackButton)) {
+      if (BackPress != nullptr) BackPress();
     }
 
     if (ButtonPressed(buttonState, lastButtonState, BUTTON_LSTICK_UP) ||
@@ -327,34 +384,18 @@ class Menu {
     }
 
     MenuItems[CurrentSelection]->Select();
-    // MenuItems[CurrentSelection]->Selected = true;
+  }
 
-    if (ButtonPressed(buttonState, lastButtonState, BUTTON_LSTICK_LEFT) ||
-        ButtonPressed(buttonState, lastButtonState, BUTTON_DPAD_LEFT)) {
-      buttonDownCount -= MenuItems[CurrentSelection]->ScrollTimeH;
-      if (MenuItems[CurrentSelection]->PressedLeft() == 0) {
-      }
-    }
+  void Draw(int transitionDirX, int transitionDirY, float moveProgress, int moveDist, float fadeProgress) {
+    // draw the menu textures
+    for (uint i = 0; i < MenuItems.size(); i++)
+      MenuItems[i]->DrawTexture(transitionDirX * moveProgress * moveDist, transitionDirY * moveProgress * moveDist, fadeProgress);
 
-    if (ButtonPressed(buttonState, lastButtonState, BUTTON_LSTICK_RIGHT) ||
-        ButtonPressed(buttonState, lastButtonState, BUTTON_DPAD_RIGHT)) {
-      buttonDownCount -= MenuItems[CurrentSelection]->ScrollTimeH;
-      if (MenuItems[CurrentSelection]->PressedRight() == 0) {
-      }
-    }
-
-    if (ButtonPressed(buttonState, lastButtonState, SelectButton)) {
-      buttonDownCount -= MenuItems[CurrentSelection]->ScrollTimeH;
-      if (MenuItems[CurrentSelection]->PressedEnter() == 0) {
-      }
-    }
-    else if (buttonState & BackButton && !(lastButtonState & BackButton)) {
-      if (BackPress != nullptr) BackPress();
-    }
-
-    for (int i = 0; i < MenuItems.size(); ++i) {
-      MenuItems[i]->Update();
-    }
+    // draw menu text
+    FontManager::Begin();
+    for (uint i = 0; i < MenuItems.size(); i++)
+      MenuItems[i]->DrawText(transitionDirX * moveProgress * moveDist, transitionDirY * moveProgress * moveDist, fadeProgress);
+    FontManager::Close();
   }
 };
 

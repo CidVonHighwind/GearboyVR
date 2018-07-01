@@ -17,6 +17,8 @@ struct Character {
 struct RenderFont {
   int FontSize;
   int offsetY;
+  int PHeight;
+  int PStart;
   GLuint textureID;
   std::map<GLchar, Character> Characters;
 };
@@ -33,6 +35,8 @@ void Begin();
 
 void RenderText(RenderFont font, std::string text, GLfloat x, GLfloat y, GLfloat scale,
                 ovrVector4f color, float transparency);
+
+void RenderFontImage(FontManager::RenderFont font, ovrVector4f color, float transparency);
 
 void Close();
 
