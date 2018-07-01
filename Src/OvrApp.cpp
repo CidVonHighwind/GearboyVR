@@ -241,7 +241,7 @@ void OvrApp::EnteredVrMode(const ovrIntentType intentType, const char *intentFro
 
   if (intentType == INTENT_LAUNCH) {
     FontManager::Init(menuWidth, menuHeight);
-    FontManager::LoadFont(&fontHeader, "/system/fonts/Roboto-Regular.ttf", 50);
+    FontManager::LoadFont(&fontHeader, "/system/fonts/Roboto-Regular.ttf", 55);
     FontManager::LoadFont(&fontBattery, "/system/fonts/Roboto-Bold.ttf", 20);
     fontTime = fontBattery;
     FontManager::LoadFont(&fontMenu, "/system/fonts/Roboto-Regular.ttf", 24);
@@ -491,7 +491,9 @@ void UpdateMenu() {
     }
   } else {
     // @hack: this should be done nicer
-    emptySlotLabel->Visible = !Emulator::currentGame->saveStates[saveSlot].filled;
+    emptySlotLabel->Visible = !Emulator::currentGame->saveStates[saveSlot].hasState;
+    noImageSlotLabel->Visible = Emulator::currentGame->saveStates[saveSlot].hasState &&
+        !Emulator::currentGame->saveStates[saveSlot].hasImage;
 
     currentMenu->Update(buttonState, lastButtonState);
   }
@@ -587,7 +589,7 @@ void DrawGUI() {
   FontManager::RenderText(fontHeader,
                           STR_HEADER,
                           75,
-                          HEADER_HEIGHT / 2 - fontHeader.FontSize / 2,
+                          HEADER_HEIGHT / 2 - fontHeader.PHeight / 2 - fontHeader.PStart,
                           1.0f,
                           headerColor,
                           1);
@@ -1193,7 +1195,7 @@ void OvrApp::SetUpMenu() {
   emptySlotLabel = new MenuLabel(&fontSlot, "- Empty Slot -", menuWidth - 320 - 20,
                                  HEADER_HEIGHT + 20, 320, 288, {1.0f, 1.0f, 1.0f, 1.0f});
   noImageSlotLabel = new MenuLabel(&fontSlot, "- -", menuWidth - 320 - 20,
-                                 HEADER_HEIGHT + 20, 320, 288, {1.0f, 1.0f, 1.0f, 1.0f});
+                                   HEADER_HEIGHT + 20, 320, 288, {1.0f, 1.0f, 1.0f, 1.0f});
   mainMenu.MenuItems.push_back(emptySlotLabel);
   mainMenu.MenuItems.push_back(noImageSlotLabel);
 

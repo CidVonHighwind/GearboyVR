@@ -17,7 +17,7 @@ struct Rom {
 
 struct SaveState {
   bool hasImage;
-  bool filled;
+  bool hasState;
   GB_Color *saveImage;
 };
 

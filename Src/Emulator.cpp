@@ -1,4 +1,5 @@
 
+#include <sys/stat.h>
 #include "Emulator.h"
 
 namespace Emulator {
@@ -69,6 +70,13 @@ GB_Color palettes[paletteCount][4] = {
 // clang-format on
 
 static GB_Color *current_palette = palettes[selectedPalette];
+
+template<typename T>
+std::string to_string(T value) {
+  std::ostringstream os;
+  os << value;
+  return os.str();
+}
 
 using namespace OVR;
 
@@ -282,6 +290,13 @@ void LoadRom(std::string path) {
   }
 }
 
+bool StateExists(int slot) {
+  std::string savePath = stateFolderPath + CurrentRom->RomName + ".state";
+  if (slot > 0) savePath += to_string(slot);
+  struct stat buffer;
+  return (stat (savePath.c_str(), &buffer) == 0);
+}
+
 void LoadGame(Rom *rom) {
   LOG("save ram");
   SaveRam();
@@ -305,6 +320,8 @@ void LoadGame(Rom *rom) {
     } else {
       currentGame->saveStates[i].hasImage = true;
     }
+
+    currentGame->saveStates[i].hasState = StateExists(i);
   }
 
   UpdateStateImage(0);
@@ -362,7 +379,7 @@ void LoadRam() {
 
 void SaveStateImage(int slot) {
   std::string savePath = stateFolderPath + CurrentRom->RomName + ".stateimg";
-  if (slot > 0) savePath += ('0' + slot);
+  if (slot > 0) savePath += to_string(slot);
 
   LOG("save image of slot to %s", savePath.c_str());
   std::ofstream outfile(savePath, std::ios::trunc | std::ios::binary);
@@ -374,7 +391,7 @@ void SaveStateImage(int slot) {
 
 bool LoadStateImage(int slot) {
   std::string savePath = stateFolderPath + CurrentRom->RomName + ".stateimg";
-  if (slot > 0) savePath += ('0' + slot);
+  if (slot > 0) savePath += to_string(slot);
 
   std::ifstream file(savePath, std::ios::in | std::ios::binary | std::ios::ate);
   if (file.is_open()) {
@@ -399,7 +416,7 @@ bool LoadStateImage(int slot) {
 
 void SaveState(int saveSlot) {
   std::string savePath = stateFolderPath + CurrentRom->RomName + ".state";
-  if (saveSlot > 0) savePath += ('0' + saveSlot);
+  if (saveSlot > 0) savePath += to_string(saveSlot);
 
   // get the size of the savestate
   size_t size = 0;
@@ -424,12 +441,13 @@ void SaveState(int saveSlot) {
   UpdateStateImage(saveSlot);
   // save image for the slot
   SaveStateImage(saveSlot);
-  currentGame->saveStates[saveSlot].filled = true;
+  currentGame->saveStates[saveSlot].hasImage = true;
+  currentGame->saveStates[saveSlot].hasState = true;
 }
 
 void LoadState(int slot) {
   std::string savePath = stateFolderPath + CurrentRom->RomName + ".state";
-  if (slot > 0) savePath += ('0' + slot);
+  if (slot > 0) savePath += to_string(slot);
 
   std::ifstream file(savePath, std::ios::in | std::ios::binary | std::ios::ate);
   if (file.is_open()) {
